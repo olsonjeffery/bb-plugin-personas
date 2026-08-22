@@ -51,16 +51,16 @@ composer, attachment, archive, and delete experience.
 
 ## Install
 
-Install from the BB Community marketplace:
-
-```sh
-bb plugin install bots
-```
-
-Or install directly from this repository:
+Install directly from this repository:
 
 ```sh
 bb plugin install git:https://github.com/prakashchokalingam/bb-plugin-bots.git
+```
+
+Install from the BB Community marketplace ([in review](https://github.com/get-bb/marketplace/pull/97)):
+
+```sh
+bb plugin install bots
 ```
 
 Requires BB `>=0.39.0`.
