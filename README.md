@@ -17,6 +17,26 @@ Each bot stores:
   plain projectless chat
 - a `status` of `draft` or `published`
 
+## Install
+
+From the BB Community marketplace:
+
+```sh
+bb plugin install bots
+```
+
+Or straight from this repository:
+
+```sh
+bb plugin install git:https://github.com/prakashchokalingam/bb-plugin-bots.git
+```
+
+BB builds the plugin from source on install, so no `dist/` is committed here.
+Requires BB `>=0.39.0`.
+
+Once installed, a **Bots** row appears in the BB sidebar. Open it, hit
+**New bot**, give it a name, provider and model, then **Publish**.
+
 ## Drafts
 
 "New bot" writes a row immediately, as a **draft**, and the editor autosaves
