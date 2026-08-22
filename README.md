@@ -10,6 +10,13 @@ Your writing bot can stay focused on clear writing. Your research bot can use a
 different model. Your coding bot can use the model and reasoning level that
 works best for code.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/front-page-dark.png">
+  <img alt="The Bots panel in BB: a rail of bots on the left, and the selected bot's instructions, composer, and chats on the right." src="assets/screenshots/front-page-light.png">
+</picture>
+
+<sub>A fleet of bots in the BB sidebar — each with its own instructions, provider, model, and reasoning level.</sub>
+
 ## Why this exists
 
 I like custom GPTs and Grok bots because they let you create a reusable persona
@@ -67,6 +74,10 @@ Requires BB `>=0.39.0`.
 5. Optionally select a project if the bot should work with a repository.
 6. Click **Publish**.
 7. Start a chat.
+
+<img alt="The Set up bot form: name, emoji, instructions, provider, model, reasoning level and project, with Publish bot disabled until the required fields are filled." src="assets/screenshots/bot-creation-light.png">
+
+<sub>New bots start as drafts. Publish stays disabled until the bot has a name, a provider, and a model.</sub>
 
 For example, you could create:
 
