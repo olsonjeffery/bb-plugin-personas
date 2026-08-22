@@ -1,126 +1,130 @@
-# Bots — a BB plugin
+# Bots for BB
 
-Create custom bots (like Grok bots or custom GPTs) with their own name, icon,
-instructions, and model, then chat with them inside BB.
+Create a small team of AI bots inside BB.
 
-A **Bots** row appears in the BB sidebar. Opening it gives a two-pane layout: a
-rail of your bots on the left, rendered like chat items, and the conversation on
-the right. Clicking a bot drops you straight into its newest chat — or into a
-fresh composer if it has none.
+Each bot has its own name, instructions, model provider, model, and reasoning
+level. Create a bot once, give it a clear job, and use it whenever you need it
+without repeating the same instructions every time.
 
-Each bot stores:
+Your writing bot can stay focused on clear writing. Your research bot can use a
+different model. Your coding bot can use the model and reasoning level that
+works best for code.
 
-- a name and an auto-assigned emoji icon (shuffle or keep it)
-- instructions the agent follows on every turn
-- a provider, model, and reasoning level
-- an optional project — set it and chats can read that repo; leave it empty for
-  plain projectless chat
-- a `status` of `draft` or `published`
+## Why this exists
+
+I like custom GPTs and Grok bots because they let you create a reusable persona
+for a specific job. But they are tied to one model provider.
+
+BB gives you more control. You can create your own bots, keep their instructions
+in one place, and choose the provider and model for each one.
+
+This plugin brings those two ideas together:
+
+- reusable bots with a clear purpose
+- your own instructions for every bot
+- a different model provider or model for different kinds of work
+- a familiar chat experience inside BB
+
+The goal is simple: build a personal fleet of bots that work the way you work.
+
+## What you can do
+
+With Bots, you can:
+
+- create bots for writing, research, coding, planning, reviews, or any repeatable work
+- give every bot its own instructions and personality
+- choose a provider, model, and reasoning level per bot
+- connect a bot to a project when it needs repository context
+- keep bots without a project for everyday conversations
+- create drafts before making a bot available to chat with
+- keep chat history as normal BB threads
+
+A bot is not a separate chat app. It lives in BB and uses BB's existing thread,
+composer, attachment, archive, and delete experience.
 
 ## Install
 
-From the BB Community marketplace:
+Install from the BB Community marketplace:
 
 ```sh
 bb plugin install bots
 ```
 
-Or straight from this repository:
+Or install directly from this repository:
 
 ```sh
 bb plugin install git:https://github.com/prakashchokalingam/bb-plugin-bots.git
 ```
 
-BB builds the plugin from source on install, so no `dist/` is committed here.
 Requires BB `>=0.39.0`.
 
-Once installed, a **Bots** row appears in the BB sidebar. Open it, hit
-**New bot**, give it a name, provider and model, then **Publish**.
+## Create your first bot
 
-## Drafts
+1. Open **Bots** from the BB sidebar.
+2. Click **New bot**.
+3. Give the bot a name and write its instructions.
+4. Choose its provider, model, and reasoning level.
+5. Optionally select a project if the bot should work with a repository.
+6. Click **Publish**.
+7. Start a chat.
 
-"New bot" writes a row immediately, as a **draft**, and the editor autosaves
-every keystroke (600ms debounce, flushed on unmount and window blur) — closing
-the panel mid-setup never loses work. A draft carries a DRAFT badge in the rail
-and cannot start chats: `startChat` rejects it on the server, not just in the
-UI. **Publish** runs `draftBlockers()` and refuses until the bot has a name, a
-provider, and a model, naming whichever are missing.
+For example, you could create:
 
-The `status` column arrived as an additive migration with
-`DEFAULT 'published'`, so bots created before drafts existed stayed live with no
-backfill code.
-
-## Chat titles
-
-`startChat` deliberately omits `title` when calling `threads.spawn`. `title` is
-optional in `CreateThreadRequest`, and BB auto-titles a thread from its first
-message; passing `bot.name` (as an earlier version did) made every conversation
-with a bot show up under that bot's name instead of what it was about.
-
-## How the persona is applied
-
-BB threads have no system-prompt field. Instead the backend registers
-`bb.agents.contributeInstructions()`, which BB evaluates at `thread.start` and
-`turn.submit`. The plugin maps each chat thread back to its bot and returns that
-bot's instruction block — and returns `null` for every other thread in BB, so a
-persona never leaks outside its own chats.
-
-Because that callback is synchronous and sits on the thread-start path, SQLite
-is the durable store and two in-memory `Map`s are the read path, hydrated on
-load. `server.test.ts` pins both the hit and the `null` fallthrough.
-
-Chats are ordinary visible BB threads, so they appear in the sidebar and can be
-opened, archived, or deleted like any other. Deleting a bot leaves its
-conversations intact; they simply stop receiving the instructions.
-
-Editing a bot applies to the **next** chat. BB never mutates a running provider
-session, so an in-flight conversation keeps the instructions it started with.
-
-## Layout
-
-| File | Role |
+| Bot | What it does |
 | --- | --- |
-| `bots.ts` | Pure logic: emoji/tint, instruction rendering, route parsing. No BB handle. |
-| `server.ts` | Storage, migrations, the instruction hook, the RPC contract, thread cleanup. |
-| `app.tsx` | Registers the nav panel; owns the rail + content-pane shell and route dispatch. |
-| `components/BotRail.tsx` | The left rail: bots as chat rows, nested chats, draft badges, resize. |
-| `components/BotHome.tsx` | A bot's landing pane (clamped instructions, composer) and the shared header. |
-| `components/BotChatView.tsx` | Shared header over BB's own `ThreadChat`. |
-| `components/BotEditor.tsx` | Autosaving setup form; publish for drafts, save for live bots. |
+| Writing partner | Rewrites messages in clear, natural English |
+| Code reviewer | Reviews pull requests using your team's standards |
+| Research assistant | Investigates a topic and gives a sourced summary |
+| Product thinker | Helps turn rough ideas into product decisions |
+| Personal assistant | Handles your everyday planning and notes |
 
-Both chat surfaces are host-owned: the chat view is BB's own `ThreadChat`
-component, and the first-message box on a bot's page is BB's own
-`experimental_NewThreadComposer`. The plugin never reimplements a timeline or
-a composer — it only forwards the fully-resolved `NewThreadRequest` the
-composer hands back to its own `startChat` rpc, which passes it straight to
-`threads.spawn`.
+## How bots work
 
-### Images and attachments
+Every bot has its own saved instructions. When you start a chat with that bot,
+those instructions are applied automatically for that conversation.
 
-Starting a chat supports attaching images — paperclip, drag-drop, and paste —
-because `experimental_NewThreadComposer` owns attachment upload itself. It
-hands back `localImage`/`localFile` prompt parts alongside any text, and
-`startChat` forwards that `input` array to `threads.spawn` verbatim, without
-inspecting or re-validating individual parts. Follow-up turns already
-supported images through the host `ThreadChat` composer; this closes the gap
-on the one surface the plugin used to own.
+You can edit a bot at any time. Changes apply to future chats; an active chat
+keeps the instructions it started with.
 
-### Seeds, not enforcement
+Bots can be connected to a BB project, but they do not need to be. A project
+gives the bot access to repository context. A bot without a project is useful
+for writing, thinking, planning, and other general conversations.
 
-A bot's stored provider, model, project, and reasoning level seed the
-composer's pickers, but the user can change any of them before sending —
-`threads.spawn` is told whatever the composer actually resolved, not what the
-bot record says. This is fine: the persona is bound per-thread by
-`contributeInstructions`, not by matching a model or project, so a chat
-started on a different model still gets the bot's instructions.
+The provider, model, project, and reasoning level are used as defaults when you
+start a chat. You can still change them before sending the first message.
+
+## Drafts and published bots
+
+New bots start as drafts. This gives you space to set up their instructions,
+provider, and model before using them.
+
+A draft cannot start a chat until it has:
+
+- a name
+- a provider
+- a model
+
+Once published, the bot is ready to use from the Bots sidebar.
+
+## Chats stay in BB
+
+Bot chats are normal BB threads. You can open them, archive them, delete them,
+and find them in the sidebar like any other BB conversation.
+
+Deleting a bot does not delete its existing chats. Those chats stay available,
+but they no longer receive that bot's instructions.
 
 ## Development
 
 ```sh
-bb plugin install .     # register this directory in place
-bb plugin dev           # rebuild + reload on save
-bb plugin logs bots -f  # follow backend logs
+bb plugin install .
+bb plugin dev
+bb plugin logs bots -f
 
-npm test                # vitest: pure logic, fake plugin host, panel rendering
+npm test
 npm run typecheck
 ```
+
+## License
+
+MIT
