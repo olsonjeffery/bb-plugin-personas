@@ -2,6 +2,8 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
+import { Icon } from "@/components/ui/icon";
 import { BotAvatar } from "@/components/BotAvatar";
 import { useBotsRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
@@ -120,12 +122,12 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
         <h2 className="text-sm font-medium">Bots</h2>
         <button
           type="button"
-          aria-label="New bot"
+          aria-label={isCreating ? "Creating…" : "New bot"}
           disabled={isCreating}
           onClick={() => void createBot()}
-          className="rounded-md px-1.5 py-0.5 text-base leading-none hover:bg-accent disabled:opacity-50"
+          className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent disabled:opacity-50`}
         >
-          ⊕
+          <Icon name="Plus" aria-hidden />
         </button>
       </div>
 

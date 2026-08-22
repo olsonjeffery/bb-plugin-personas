@@ -1,5 +1,7 @@
 import { ThreadChat, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
+import { Icon } from "@/components/ui/icon";
 import { BotHeader } from "@/components/BotHome";
 import { useBotsRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
@@ -15,7 +17,7 @@ export function BotChatView({
 }) {
   const rpc = useBotsRpc();
   const navigate = useBbNavigate();
-  const { data } = useQuery(() => rpc.call("getBot", { botId }), `chat:${botId}`);
+  const { data, error } = useQuery(() => rpc.call("getBot", { botId }), `chat:${botId}`);
   const bot = data?.bot ?? null;
 
   // Deleting a bot leaves its chats intact (they just stop receiving the
@@ -40,12 +42,16 @@ export function BotChatView({
               type="button"
               aria-label="Back"
               onClick={onBack}
-              className="rounded-md p-1.5 text-sm hover:bg-accent"
+              className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent`}
             >
-              ←
+              <Icon name="ChevronLeft" aria-hidden />
             </button>
           )}
-          <span className="truncate text-sm font-medium">Bot</span>
+          {error !== null ? (
+            <span className="truncate text-sm text-destructive">{error}</span>
+          ) : (
+            <span className="truncate text-sm font-medium">Bot</span>
+          )}
         </div>
       ) : (
         <BotHeader
