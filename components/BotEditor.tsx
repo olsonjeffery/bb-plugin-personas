@@ -6,6 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -17,6 +26,7 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { useBotsRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import {
+  displayName,
   draftBlockers,
   MAX_INSTRUCTIONS,
   MAX_NAME,
@@ -111,6 +121,7 @@ export function BotEditor({ botId }: { botId: string }) {
   const [projectId, setProjectId] = useState(NO_PROJECT);
   const [isSeeded, setIsSeeded] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
   );
@@ -228,17 +239,25 @@ export function BotEditor({ botId }: { botId: string }) {
     `models:${providerId}`,
   );
 
-  // Keep the model selection valid for the chosen provider.
+  // Keep the model selection valid for the chosen provider. `models.data`
+  // still holds the previous provider's list (or null, after a failed load)
+  // until the new one resolves, so only a settled, non-null response is
+  // treated as the truth about what this provider offers.
   const available = models.data?.models ?? [];
   useEffect(() => {
-    if (available.length === 0) return;
+    if (models.isLoading || models.data === null) return;
+    if (available.length === 0) {
+      setModel("");
+      setReasoningLevel(null);
+      return;
+    }
     if (available.some((candidate) => candidate.id === model)) return;
     const preferred =
       available.find((candidate) => candidate.isDefault) ?? available[0]!;
     setModel(preferred.id);
     setReasoningLevel(preferred.defaultReasoningEffort);
     // `model` is intentionally omitted: this only runs when the list changes.
-  }, [available]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [available, models.isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce every field change into one autosave call. Skipped during the
   // initial seed pass above, or the loaded record would get overwritten with
@@ -406,9 +425,9 @@ export function BotEditor({ botId }: { botId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Provider</Label>
+          <Label htmlFor="bot-provider">Provider</Label>
           <Select value={providerId} onValueChange={setProviderId}>
-            <SelectTrigger>
+            <SelectTrigger id="bot-provider">
               <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
@@ -428,13 +447,13 @@ export function BotEditor({ botId }: { botId: string }) {
 
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
-            <Label>Model</Label>
+            <Label htmlFor="bot-model">Model</Label>
             {modelBlocked ? (
               <span className="text-xs text-destructive">Required</span>
             ) : null}
           </div>
           <Select value={model} onValueChange={setModel}>
-            <SelectTrigger>
+            <SelectTrigger id="bot-model">
               <SelectValue placeholder="Select a model" />
             </SelectTrigger>
             <SelectContent>
@@ -448,12 +467,12 @@ export function BotEditor({ botId }: { botId: string }) {
         </div>
 
         <div className="space-y-2">
-          <Label>Reasoning</Label>
+          <Label htmlFor="bot-reasoning">Reasoning</Label>
           <Select
             value={reasoningLevel ?? ""}
             onValueChange={(next) => setReasoningLevel(next as ReasoningLevel)}
           >
-            <SelectTrigger>
+            <SelectTrigger id="bot-reasoning">
               <SelectValue placeholder="Default" />
             </SelectTrigger>
             <SelectContent>
@@ -467,9 +486,9 @@ export function BotEditor({ botId }: { botId: string }) {
         </div>
 
         <div className="space-y-2">
-          <Label>Project</Label>
+          <Label htmlFor="bot-project">Project</Label>
           <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger>
+            <SelectTrigger id="bot-project">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -498,10 +517,36 @@ export function BotEditor({ botId }: { botId: string }) {
               variant="ghost"
               className="text-destructive"
               disabled={isBusy}
-              onClick={() => void removeDraft()}
+              onClick={() => setDeleteDialogOpen(true)}
             >
               Delete draft
             </Button>
+            {/* Deleting is irreversible, so it always goes through this
+                confirmation rather than firing straight off the click. */}
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete {displayName(currentBot)}?</DialogTitle>
+                  <DialogDescription>
+                    This draft was never published, so nothing else changes.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </DialogClose>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setDeleteDialogOpen(false);
+                      void removeDraft();
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </>
         ) : (
           <Button disabled={isBusy} onClick={() => void saveAndClose()}>

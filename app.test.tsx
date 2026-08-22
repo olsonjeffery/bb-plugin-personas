@@ -46,6 +46,20 @@ const BOT_DRAFT = {
   updatedAt: 10,
 };
 
+const BOT_NAMED_DRAFT = {
+  id: "bot_4",
+  name: "Switcher",
+  emoji: "🧪",
+  instructions: "",
+  providerId: "codex",
+  model: "gpt-5.5",
+  reasoningLevel: "medium" as const,
+  projectId: null,
+  status: "draft" as const,
+  createdAt: 0,
+  updatedAt: 10,
+};
+
 const RAIL_BOTS = [
   {
     ...BOT_WITH_CHATS,
@@ -293,9 +307,128 @@ describe("bots nav panel", () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
 
-    const showMore = await slot.findByText("Show more ⌄");
+    const showMore = await slot.findByRole("button", { name: "Show more" });
     showMore.click();
-    await slot.findByText("Show less ⌃");
+    await slot.findByRole("button", { name: "Show less" });
+    slot.lifecycle.unmount();
+  });
+
+  it("renders the header subtitle only when the bot has provider, model, or reasoning to show", async () => {
+    const panel = await loadPanel();
+    const configured = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const configuredHeader = (
+      await configured.findByLabelText("Edit bot settings")
+    ).parentElement!;
+    expect(configuredHeader.textContent).toContain("codex · gpt-5.5 · medium");
+    configured.lifecycle.unmount();
+
+    // bot_3 is a draft with an empty providerId, an empty model, and a null
+    // reasoningLevel, so the joined subtitle must collapse away entirely
+    // rather than rendering the separators around missing parts.
+    const draft = renderSlot(panel, { subPath: "bot_3" }, { rpc: RPC });
+    const draftHeader = (
+      await draft.findByLabelText("Edit bot settings")
+    ).parentElement!;
+    expect(draftHeader.textContent).not.toContain("·");
+    draft.lifecycle.unmount();
+  });
+
+  it("exposes the ⋯ menu as an ARIA menu, with aria-expanded tracking open state", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+
+    const menuButton = await slot.findByLabelText("More actions");
+    expect(menuButton.getAttribute("aria-haspopup")).toBe("menu");
+    expect(menuButton.getAttribute("aria-expanded")).toBe("false");
+    expect(slot.queryByRole("menu")).toBeNull();
+
+    menuButton.click();
+
+    await slot.findByRole("menu");
+    expect(menuButton.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      slot.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["New chat", "Edit bot", "Delete bot"]);
+
+    slot.lifecycle.unmount();
+  });
+
+  it("confirms before deleting a draft from the editor", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_3/edit" }, { rpc: RPC });
+
+    (await slot.findByText("Delete draft")).click();
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "deleteBot"),
+    ).toBe(false);
+
+    await slot.findByText("Delete Untitled bot?");
+    (await slot.findByRole("button", { name: "Cancel" })).click();
+    await waitFor(() =>
+      expect(slot.queryByText("Delete Untitled bot?")).toBeNull(),
+    );
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "deleteBot"),
+    ).toBe(false);
+
+    (await slot.findByText("Delete draft")).click();
+    await slot.findByText("Delete Untitled bot?");
+    (await slot.findByRole("button", { name: "Delete" })).click();
+
+    await waitFor(() => {
+      const deleteCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "deleteBot",
+      );
+      expect(deleteCall?.input).toEqual({ botId: "bot_3" });
+    });
+    slot.lifecycle.unmount();
+  });
+
+  it("clears the model and keeps Publish disabled when the picked provider has no models", async () => {
+    // Radix's Select needs these; jsdom ships neither.
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.releasePointerCapture = () => {};
+
+    const panel = await loadPanel();
+    const slot = renderSlot(
+      panel,
+      { subPath: "bot_4/edit" },
+      {
+        rpc: {
+          ...RPC,
+          getBot: () => ({ bot: BOT_NAMED_DRAFT }),
+          listOptions: () => ({
+            providers: [
+              { id: "codex", displayName: "Codex", available: true },
+              { id: "vacant", displayName: "Vacant", available: true },
+            ],
+            projects: [],
+            personalProjectId: null,
+          }),
+          // Settled-and-empty, not pending: the editor must tell "this
+          // provider offers nothing" apart from "still loading".
+          listModels: (input: unknown) => {
+            const { providerId } = input as { providerId: string };
+            if (providerId === "vacant") return { models: [] };
+            return RPC.listModels();
+          },
+        },
+      },
+    );
+
+    const providerTrigger = await slot.findByLabelText("Provider");
+    providerTrigger.focus();
+    fireEvent.keyDown(providerTrigger, { key: "ArrowDown" });
+    fireEvent.click(await slot.findByText("Vacant"));
+
+    await waitFor(() =>
+      expect(slot.getByLabelText("Model").textContent).toBe("Select a model"),
+    );
+    expect(
+      slot.getByText("Publish bot").closest("button")!.disabled,
+    ).toBe(true);
+
     slot.lifecycle.unmount();
   });
 

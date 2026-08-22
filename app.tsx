@@ -13,7 +13,9 @@ import { BotEditor } from "@/components/BotEditor";
 import { BotHome } from "@/components/BotHome";
 import { BotRail } from "@/components/BotRail";
 import { PANEL_PATH } from "@/components/panel-path";
+import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
+import { Icon } from "@/components/ui/icon";
 import { useBotsRpc } from "@/components/use-query";
 
 /** A document-style pane (root empty state, transient create, the editor). */
@@ -32,9 +34,9 @@ function DocumentPane({
             type="button"
             aria-label="Back"
             onClick={onBack}
-            className="rounded-md p-1.5 text-sm hover:bg-accent"
+            className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent`}
           >
-            ←
+            <Icon name="ChevronLeft" aria-hidden />
           </button>
         </div>
       )}
