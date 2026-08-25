@@ -16,7 +16,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { BotAvatar } from "@/components/BotAvatar";
-import { formatRelative } from "@/components/BotRail";
+import { ChatRow } from "@/components/ChatRow";
 import { useBotsRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import { cn } from "@/lib/utils";
@@ -195,10 +195,11 @@ export function BotHome({
   const rpc = useBotsRpc();
   const navigate = useBbNavigate();
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
 
   // One round trip: the bot, the picker options the composer needs, and its
   // chat list, so this pane never waterfalls into a second call after load.
-  const { data, error } = useQuery(
+  const { data, error, reload } = useQuery(
     () =>
       Promise.all([
         rpc.call("getBot", { botId }),
@@ -225,6 +226,7 @@ export function BotHome({
   }
   const { personalProjectId } = data[1];
   const chats = data[2].chats;
+  const archivedChats = data[2].archivedChats;
   // TS's control-flow narrowing of `bot` doesn't reach into the closures
   // below, so the name is captured here rather than re-read from `bot`.
   const botName = displayName(bot);
@@ -350,30 +352,54 @@ export function BotHome({
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {chats.map((chat) => (
                       <li key={chat.threadId}>
-                        <button
-                          type="button"
-                          onClick={() =>
+                        <ChatRow
+                          chat={chat}
+                          archived={false}
+                          onOpen={() =>
                             navigate.toPluginPanel(PANEL_PATH, {
                               subPath: `${botId}/${chat.threadId}`,
                             })
                           }
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                        >
-                          <span className="min-w-0 flex-1 truncate">
-                            {chat.title ?? "New chat"}
-                          </span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {formatRelative(chat.updatedAt)}
-                          </span>
-                          <span className="shrink-0 text-muted-foreground">
-                            ›
-                          </span>
-                        </button>
+                          reload={reload}
+                        />
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
+
+              {archivedChats.length === 0 ? null : (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setArchivedExpanded((expanded) => !expanded)
+                    }
+                    className="flex items-center gap-1 text-sm font-medium text-foreground/70 hover:text-foreground"
+                  >
+                    <span aria-hidden>{archivedExpanded ? "▾" : "▸"}</span>
+                    Archived ({archivedChats.length})
+                  </button>
+                  {archivedExpanded ? (
+                    <ul className="divide-y divide-border rounded-lg border border-border">
+                      {archivedChats.map((chat) => (
+                        <li key={chat.threadId}>
+                          <ChatRow
+                            chat={chat}
+                            archived
+                            onOpen={() =>
+                              navigate.toPluginPanel(PANEL_PATH, {
+                                subPath: `${botId}/${chat.threadId}`,
+                              })
+                            }
+                            reload={reload}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              )}
             </>
           )}
         </div>

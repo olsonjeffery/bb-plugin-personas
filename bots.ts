@@ -258,6 +258,28 @@ export interface BotRow {
   updated_at: number;
 }
 
+/** The subset of ChatSchema (server.ts) that sortChats needs to order a list. */
+export interface ChatSortable {
+  pinnedAt: number | null;
+  updatedAt: number;
+}
+
+/**
+ * Orders a bot's active chats for the list: pinned chats first (most
+ * recently pinned on top), then everything else by most-recently-updated.
+ * Exported as a pure helper — separate from listChats's I/O — so the
+ * ordering rule is unit-testable without spinning up a fake plugin host.
+ */
+export function sortChats<T extends ChatSortable>(chats: readonly T[]): T[] {
+  return [...chats].sort((a, b) => {
+    const aPinned = a.pinnedAt !== null;
+    const bPinned = b.pinnedAt !== null;
+    if (aPinned && bPinned) return b.pinnedAt! - a.pinnedAt!;
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    return b.updatedAt - a.updatedAt;
+  });
+}
+
 export function rowToBot(row: BotRow): Bot {
   return {
     id: row.id,

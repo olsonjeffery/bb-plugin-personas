@@ -78,12 +78,21 @@ const RPC = {
     if (botId === "bot_1") {
       return {
         chats: [
-          { threadId: "thr_new", title: "Ahoy there", status: "active", updatedAt: 200 },
+          {
+            threadId: "thr_new",
+            title: "Ahoy there",
+            status: "active",
+            updatedAt: 200,
+            pinnedAt: null,
+            archivedAt: null,
+          },
         ],
+        archivedChats: [],
       };
     }
-    return { chats: [] };
+    return { chats: [], archivedChats: [] };
   },
+  unarchiveChat: () => ({ ok: true }),
   listOptions: () => ({
     providers: [{ id: "codex", displayName: "Codex", available: true }],
     projects: [{ id: "proj_work", name: "Work" }],
@@ -440,6 +449,262 @@ describe("bots nav panel", () => {
     expect(avatar).not.toBeNull();
     expect(EMOJIS).toContain(avatar!.textContent);
 
+    slot.lifecycle.unmount();
+  });
+
+  // -- Chat row menu (pin/rename/archive/delete) and the Archived section --
+  //
+  // Pin/rename/archive/delete all go through the host's
+  // experimental_useSidebarThreadActions() hook, which the test harness
+  // stubs and records to slot.inspection.sidebarActionCalls — no vi.mock
+  // needed, this is the same seam renderSlot always provides.
+
+  const CHAT_ROW_RPC = {
+    ...RPC,
+    listChats: (input: unknown) => {
+      const { botId } = input as { botId: string };
+      if (botId !== "bot_1") return { chats: [], archivedChats: [] };
+      return {
+        chats: [
+          {
+            threadId: "thr_new",
+            title: "Ahoy there",
+            status: "active",
+            updatedAt: 200,
+            pinnedAt: null,
+            archivedAt: null,
+          },
+        ],
+        archivedChats: [
+          {
+            threadId: "thr_old",
+            title: "Buried treasure",
+            status: "archived",
+            updatedAt: 50,
+            pinnedAt: null,
+            archivedAt: 60,
+          },
+        ],
+      };
+    },
+  };
+
+  it("fires Pin from a chat row's ⋯ menu despite the trigger losing focus to the item", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Chats (1)");
+    // Two "More actions" triggers exist on this page (the header's and the
+    // chat row's); the row's is the last one rendered.
+    const menuButtons = await slot.findAllByLabelText("More actions");
+    const menuButton = menuButtons[menuButtons.length - 1]!;
+    menuButton.focus();
+    menuButton.click();
+    const pinItem = await slot.findByText("Pin");
+
+    // Same regression as the bot-header menu: the click must survive the
+    // trigger's blur firing first.
+    fireEvent.focusOut(menuButton, { relatedTarget: pinItem });
+    expect(pinItem.isConnected).toBe(true);
+    pinItem.click();
+
+    await waitFor(() => {
+      expect(slot.inspection.sidebarActionCalls).toContainEqual({
+        method: "setPinned",
+        threadId: "thr_new",
+        pinned: true,
+      });
+    });
+    slot.lifecycle.unmount();
+  });
+
+  it("renames a chat inline: Enter commits the trimmed title, Escape cancels, and an unchanged/empty value fires nothing", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Chats (1)");
+    const menuButtons = await slot.findAllByLabelText("More actions");
+    const menuButton = menuButtons[menuButtons.length - 1]!;
+    menuButton.focus();
+    menuButton.click();
+    const renameItem = await slot.findByText("Rename");
+    fireEvent.focusOut(menuButton, { relatedTarget: renameItem });
+    renameItem.click();
+
+    const input = await slot.findByLabelText("Chat title");
+
+    // Escape cancels — no RPC.
+    fireEvent.change(input, { target: { value: "New name" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(
+      slot.inspection.sidebarActionCalls.some((call) => call.method === "rename"),
+    ).toBe(false);
+    await slot.findByText("Chats (1)");
+
+    // Reopen, clear the title, Enter — empty is a no-op cancel, not a rename.
+    const reopened = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    reopened.focus();
+    reopened.click();
+    const renameAgain = await slot.findByText("Rename");
+    fireEvent.focusOut(reopened, { relatedTarget: renameAgain });
+    renameAgain.click();
+    const input2 = await slot.findByLabelText("Chat title");
+    fireEvent.change(input2, { target: { value: "   " } });
+    fireEvent.keyDown(input2, { key: "Enter" });
+    expect(
+      slot.inspection.sidebarActionCalls.some((call) => call.method === "rename"),
+    ).toBe(false);
+
+    // Reopen, type an actual new title, Enter commits it, trimmed.
+    const reopened2 = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    reopened2.focus();
+    reopened2.click();
+    const renameThird = await slot.findByText("Rename");
+    fireEvent.focusOut(reopened2, { relatedTarget: renameThird });
+    renameThird.click();
+    const input3 = await slot.findByLabelText("Chat title");
+    fireEvent.change(input3, { target: { value: "  Treasure map  " } });
+    fireEvent.keyDown(input3, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(slot.inspection.sidebarActionCalls).toContainEqual({
+        method: "rename",
+        threadId: "thr_new",
+        title: "Treasure map",
+      });
+    });
+    slot.lifecycle.unmount();
+  });
+
+  it("never nests the rename input inside a <button> and hides the navigate button entirely while editing", async () => {
+    // Regression test for the disabled-ancestor-makes-descendants-inert bug:
+    // an earlier ChatRow put the rename <input> inside a
+    // disabled={isEditing} navigate <button>. jsdom doesn't enforce either
+    // the invalid-HTML nesting or the real-browser inertness that causes,
+    // so this is the assertion that would actually have caught it.
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Chats (1)");
+    const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    menuButton.focus();
+    menuButton.click();
+    const renameItem = await slot.findByText("Rename");
+    fireEvent.focusOut(menuButton, { relatedTarget: renameItem });
+    renameItem.click();
+
+    const input = await slot.findByLabelText("Chat title");
+    expect(input.closest("button")).toBeNull();
+
+    // The navigate button itself is absent from the editing row — not
+    // merely disabled. Its sibling group's row container is the input's
+    // parent, and it has no <button> wrapping the title text anymore.
+    expect(input.parentElement?.querySelector("button")).toBeNull();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    slot.lifecycle.unmount();
+  });
+
+  it("calls archive with the chat's threadId from the ⋯ menu", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Chats (1)");
+    const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    menuButton.focus();
+    menuButton.click();
+    const archiveItem = await slot.findByText("Archive");
+    fireEvent.focusOut(menuButton, { relatedTarget: archiveItem });
+    expect(archiveItem.isConnected).toBe(true);
+    archiveItem.click();
+
+    await waitFor(() => {
+      expect(slot.inspection.sidebarActionCalls).toContainEqual({
+        method: "archive",
+        threadId: "thr_new",
+      });
+    });
+    slot.lifecycle.unmount();
+  });
+
+  it("calls requestDelete (BB's own confirmation) rather than opening a local dialog", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Chats (1)");
+    const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    menuButton.focus();
+    menuButton.click();
+    const deleteItem = await slot.findByText("Delete");
+    fireEvent.focusOut(menuButton, { relatedTarget: deleteItem });
+    expect(deleteItem.isConnected).toBe(true);
+    deleteItem.click();
+
+    await waitFor(() => {
+      expect(slot.inspection.sidebarActionCalls).toContainEqual({
+        method: "requestDelete",
+        threadId: "thr_new",
+      });
+    });
+    // No local confirmation dialog ever appears for a chat-row delete.
+    expect(slot.queryByText("Delete Ahoy there?")).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("hides the Archived section when there are no archived chats", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: RPC });
+
+    await slot.findByText("Chats (1)");
+    expect(slot.queryByText(/^Archived/)).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("renders the Archived section collapsed by default and shows its rows (with Unarchive/Delete only) once expanded", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Archived (1)");
+    expect(slot.queryByText("Buried treasure")).toBeNull();
+
+    fireEvent.click(slot.getByText("Archived (1)"));
+    await slot.findByText("Buried treasure");
+
+    const menuButtons = await slot.findAllByLabelText("More actions");
+    const archivedMenuButton = menuButtons[menuButtons.length - 1]!;
+    archivedMenuButton.focus();
+    archivedMenuButton.click();
+
+    expect(slot.queryByText("Pin")).toBeNull();
+    expect(slot.queryByText("Rename")).toBeNull();
+    await slot.findByText("Unarchive");
+    await slot.findByText("Delete");
+
+    slot.lifecycle.unmount();
+  });
+
+  it("calls the unarchiveChat RPC from an archived row's menu", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+
+    await slot.findByText("Archived (1)");
+    fireEvent.click(slot.getByText("Archived (1)"));
+    await slot.findByText("Buried treasure");
+
+    const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
+    menuButton.focus();
+    menuButton.click();
+    const unarchiveItem = await slot.findByText("Unarchive");
+    fireEvent.focusOut(menuButton, { relatedTarget: unarchiveItem });
+    expect(unarchiveItem.isConnected).toBe(true);
+    unarchiveItem.click();
+
+    await waitFor(() => {
+      const call = slot.inspection.rpcCalls.find(
+        (call) => call.method === "unarchiveChat",
+      );
+      expect(call?.input).toEqual({ threadId: "thr_old" });
+    });
     slot.lifecycle.unmount();
   });
 });

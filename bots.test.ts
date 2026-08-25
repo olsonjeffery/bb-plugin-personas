@@ -14,6 +14,7 @@ import {
   previewInstructions,
   renderBotInstructions,
   routeToSubPath,
+  sortChats,
   type Bot,
 } from "./bots.js";
 
@@ -255,6 +256,52 @@ describe("isSingleEmoji", () => {
 
   it("is false for whitespace-only input", () => {
     expect(isSingleEmoji("  ")).toBe(false);
+  });
+});
+
+describe("sortChats", () => {
+  it("puts pinned chats ahead of unpinned ones regardless of updatedAt", () => {
+    const chats = [
+      { threadId: "a", pinnedAt: null, updatedAt: 100 },
+      { threadId: "b", pinnedAt: 5, updatedAt: 1 },
+    ];
+    expect(sortChats(chats).map((chat) => chat.threadId)).toEqual(["b", "a"]);
+  });
+
+  it("orders multiple pinned chats by pinnedAt descending (most recently pinned first)", () => {
+    const chats = [
+      { threadId: "a", pinnedAt: 10, updatedAt: 1 },
+      { threadId: "b", pinnedAt: 30, updatedAt: 1 },
+      { threadId: "c", pinnedAt: 20, updatedAt: 1 },
+    ];
+    expect(sortChats(chats).map((chat) => chat.threadId)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+  });
+
+  it("orders unpinned chats by updatedAt descending", () => {
+    const chats = [
+      { threadId: "a", pinnedAt: null, updatedAt: 5 },
+      { threadId: "b", pinnedAt: null, updatedAt: 15 },
+      { threadId: "c", pinnedAt: null, updatedAt: 10 },
+    ];
+    expect(sortChats(chats).map((chat) => chat.threadId)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+  });
+
+  it("does not mutate the input array", () => {
+    const chats = [
+      { threadId: "a", pinnedAt: null, updatedAt: 1 },
+      { threadId: "b", pinnedAt: null, updatedAt: 2 },
+    ];
+    const original = [...chats];
+    sortChats(chats);
+    expect(chats).toEqual(original);
   });
 });
 
