@@ -43,7 +43,7 @@ export function ChatRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Same fix as BotHeader's "⋯" menu: closing on the trigger's own onBlur
+  // Same fix as BotHeader's more-actions menu: closing on the trigger's own onBlur
   // fires on mousedown, before a menu item's click ever lands, so every item
   // was dead. Close on the *container's* blur instead, and only when focus
   // actually left the container.

@@ -393,9 +393,14 @@ export function BotHome({
                     onClick={() =>
                       setArchivedExpanded((expanded) => !expanded)
                     }
+                    aria-expanded={archivedExpanded}
                     className="flex items-center gap-1 text-sm font-medium text-foreground/70 hover:text-foreground"
                   >
-                    <span aria-hidden>{archivedExpanded ? "▾" : "▸"}</span>
+                    <Icon
+                      name={archivedExpanded ? "ChevronDown" : "ChevronRight"}
+                      className="size-3.5"
+                      aria-hidden
+                    />
                     Archived ({archivedChats.length})
                   </button>
                   {archivedExpanded ? (
