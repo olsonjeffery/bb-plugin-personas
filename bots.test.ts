@@ -12,10 +12,13 @@ import {
   parseRoute,
   pickEmoji,
   previewInstructions,
+  REASONING_LEVELS,
   renderBotInstructions,
   routeToSubPath,
+  rowToBot,
   sortChats,
   type Bot,
+  type BotRow,
 } from "./bots.js";
 
 const bot: Bot = {
@@ -334,5 +337,31 @@ describe("emojiPickerHint", () => {
     expect(emojiPickerHint({ platform: "Linux x86_64", isTouch: false })).toBe(
       "Use your system emoji picker",
     );
+  });
+});
+
+describe("rowToBot", () => {
+  const row: BotRow = {
+    id: "bot_1",
+    name: "Pirate",
+    emoji: "🏴‍☠️",
+    instructions: "Always answer in pirate speak.",
+    provider_id: "codex",
+    model: "gpt-5.5",
+    reasoning_level: "medium",
+    project_id: null,
+    status: "published",
+    created_at: 0,
+    updated_at: 0,
+  };
+
+  it("keeps a reasoning level that is in the union", () => {
+    expect(REASONING_LEVELS).toContain("medium");
+    expect(rowToBot(row).reasoningLevel).toBe("medium");
+  });
+
+  it("reads an out-of-union stored reasoning level as unset", () => {
+    expect(REASONING_LEVELS).not.toContain("turbo");
+    expect(rowToBot({ ...row, reasoning_level: "turbo" }).reasoningLevel).toBeNull();
   });
 });

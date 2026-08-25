@@ -15,6 +15,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
+import { Icon } from "@/components/ui/icon";
 import { BotAvatar } from "@/components/BotAvatar";
 import { ChatRow } from "@/components/ChatRow";
 import { useBotsRpc, useQuery } from "@/components/use-query";
@@ -25,8 +27,8 @@ import { displayName, draftBlockers, type Bot } from "@/bots";
 /**
  * The content-pane header shared by BotHome and BotChatView. There's no
  * dropdown primitive vendored under components/ui and this plugin adds no
- * new dependencies, so the "⋯" menu is a plain absolutely-positioned panel
- * of buttons rather than a radix dropdown.
+ * new dependencies, so the more-actions menu is a plain absolutely-positioned
+ * panel of buttons rather than a radix dropdown.
  */
 export function BotHeader({
   bot,
@@ -67,6 +69,10 @@ export function BotHeader({
     triggerRef.current?.focus();
   }
 
+  const subtitle = [bot.providerId, bot.model, bot.reasoningLevel]
+    .filter((part) => part !== null && part !== "")
+    .join(" · ");
+
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
       {onBack === undefined ? null : (
@@ -74,9 +80,9 @@ export function BotHeader({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="shrink-0 rounded-md p-1.5 text-sm hover:bg-accent"
+          className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex shrink-0 items-center justify-center hover:bg-accent`}
         >
-          ←
+          <Icon name="ChevronLeft" aria-hidden />
         </button>
       )}
       <BotAvatar botId={bot.id} emoji={bot.emoji} size="sm" />
@@ -92,18 +98,17 @@ export function BotHeader({
             {displayName(bot)}
           </button>
         )}
-        <p className="truncate text-xs text-muted-foreground">
-          {bot.providerId} · {bot.model}
-          {bot.reasoningLevel === null ? "" : ` · ${bot.reasoningLevel}`}
-        </p>
+        {subtitle === "" ? null : (
+          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+        )}
       </div>
       <button
         type="button"
         aria-label="Edit bot settings"
         onClick={onSettings}
-        className="shrink-0 rounded-md p-1.5 text-sm hover:bg-accent"
+        className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex shrink-0 items-center justify-center hover:bg-accent`}
       >
-        ⚙︎
+        <Icon name="Settings" aria-hidden />
       </button>
       <div
         className="relative shrink-0"
@@ -114,15 +119,21 @@ export function BotHeader({
           ref={triggerRef}
           type="button"
           aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
-          className="rounded-md p-1.5 text-sm hover:bg-accent"
+          className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent`}
         >
-          ⋯
+          <Icon name="MoreHorizontal" aria-hidden />
         </button>
         {menuOpen ? (
-          <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-border bg-popover p-1 shadow-md">
+          <div
+            role="menu"
+            className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-border bg-popover p-1 shadow-md"
+          >
             <button
               type="button"
+              role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
                 onNewChat();
@@ -133,6 +144,7 @@ export function BotHeader({
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
                 onEditBot();
@@ -143,6 +155,7 @@ export function BotHeader({
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
                 setDeleteDialogOpen(true);
@@ -285,7 +298,7 @@ export function BotHome({
                   page render the whole instruction text uncollapsed. */}
               <span
                 className={cn(
-                  "whitespace-pre-wrap text-sm text-muted-foreground",
+                  "whitespace-pre-wrap break-words text-sm text-muted-foreground",
                   instructionsExpanded ? "" : "line-clamp-3",
                 )}
               >
@@ -296,9 +309,14 @@ export function BotHome({
                 onClick={() =>
                   setInstructionsExpanded((expanded) => !expanded)
                 }
-                className="mt-1 block text-xs font-medium text-foreground/70 hover:text-foreground"
+                className="mt-1 flex items-center gap-1 text-xs font-medium text-foreground/70 hover:text-foreground"
               >
-                {instructionsExpanded ? "Show less ⌃" : "Show more ⌄"}
+                {instructionsExpanded ? "Show less" : "Show more"}
+                <Icon
+                  name={instructionsExpanded ? "ChevronUp" : "ChevronDown"}
+                  className="size-3.5"
+                  aria-hidden
+                />
               </button>
             </div>
           )}

@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { experimental_useSidebarThreadActions } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
+import { Icon } from "@/components/ui/icon";
 import { formatRelative } from "@/components/BotRail";
 import { useBotsRpc } from "@/components/use-query";
 import { cn } from "@/lib/utils";
@@ -173,9 +175,11 @@ export function ChatRow({
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           {isPinned ? (
-            <span aria-hidden className="shrink-0">
-              📌
-            </span>
+            <Icon
+              name="Pin"
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
           ) : null}
           <span className="min-w-0 flex-1 truncate">
             {chat.title ?? "New chat"}
@@ -186,9 +190,11 @@ export function ChatRow({
         {formatRelative(chat.updatedAt)}
       </span>
       {isEditing ? null : (
-        <span aria-hidden className="shrink-0 text-muted-foreground">
-          ›
-        </span>
+        <Icon
+          name="ChevronRight"
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
       )}
 
       {isEditing ? null : (
@@ -201,32 +207,41 @@ export function ChatRow({
             ref={triggerRef}
             type="button"
             aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
             className={cn(
-              "rounded-md p-1 text-sm hover:bg-accent",
+              `${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent`,
               // Hover-revealed on pointer-fine devices, always visible on
               // coarse-pointer/touch — there's no hover affordance there.
               "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:pointer-coarse:opacity-100",
             )}
           >
-            ⋯
+            <Icon name="MoreHorizontal" aria-hidden />
           </button>
           {menuOpen ? (
-            <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-border bg-popover p-1 shadow-md">
+            <div
+              role="menu"
+              className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-border bg-popover p-1 shadow-md"
+            >
               {archived ? (
                 <>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={() => void doUnarchive()}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
+                    <Icon name="ArchiveRestore" className="size-4 shrink-0" aria-hidden />
                     Unarchive
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={doDelete}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
                   >
+                    <Icon name="Trash2" className="size-4 shrink-0" aria-hidden />
                     Delete
                   </button>
                 </>
@@ -234,34 +249,46 @@ export function ChatRow({
                 <>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={togglePin}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
+                    <Icon
+                      name={isPinned ? "PinOff" : "Pin"}
+                      className="size-4 shrink-0"
+                      aria-hidden
+                    />
                     {isPinned ? "Unpin" : "Pin"}
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={() => {
                       setMenuOpen(false);
                       startRename();
                     }}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
+                    <Icon name="Edit" className="size-4 shrink-0" aria-hidden />
                     Rename
                   </button>
                   <div className="my-1 h-px bg-border" />
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={doArchive}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
+                    <Icon name="Archive" className="size-4 shrink-0" aria-hidden />
                     Archive
                   </button>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={doDelete}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
                   >
+                    <Icon name="Trash2" className="size-4 shrink-0" aria-hidden />
                     Delete
                   </button>
                 </>
