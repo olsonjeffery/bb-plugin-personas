@@ -14,6 +14,7 @@ import {
   pickEmoji,
   renderBotInstructions,
   rowToBot,
+  sortChats,
   type Bot,
   type BotRow,
 } from "./bots.js";
@@ -64,6 +65,11 @@ const ChatSchema = z.object({
   title: z.string().nullable(),
   status: z.string(),
   updatedAt: z.number().int(),
+  // Mirror threadListResponseSchema's own field names (bb-plugin-sdk.d.ts)
+  // exactly, both nullable: an unpinned/unarchived thread has null, not 0 or
+  // false, so the frontend can tell "never pinned" from "pinned at epoch 0".
+  pinnedAt: z.number().int().nullable(),
+  archivedAt: z.number().int().nullable(),
 });
 
 // Mirrors the host's `promptInputSchema` (bb-plugin-sdk-app.d.ts) exactly.
@@ -141,7 +147,10 @@ export const rpcContract = defineRpcContract({
   },
   listChats: {
     input: z.object({ botId: z.string() }).strict(),
-    output: z.object({ chats: z.array(ChatSchema) }),
+    output: z.object({
+      chats: z.array(ChatSchema),
+      archivedChats: z.array(ChatSchema),
+    }),
   },
   // The rail's single round trip: every bot plus its chats in one call, so
   // the panel never has to fan out per-bot RPCs on load.
@@ -168,6 +177,14 @@ export const rpcContract = defineRpcContract({
       .object({ botId: z.string(), request: NewThreadRequestSchema })
       .strict(),
     output: z.object({ threadId: z.string() }),
+  },
+  // Pin/rename/archive/delete all come from the host's own
+  // experimental_useSidebarThreadActions() hook on the frontend. Unarchive is
+  // the one action that hook doesn't expose, so it's the only mutation this
+  // plugin needs to provide itself.
+  unarchiveChat: {
+    input: z.object({ threadId: z.string() }).strict(),
+    output: z.object({ ok: z.boolean() }),
   },
   listOptions: {
     input: z.null(),
@@ -393,8 +410,9 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true };
     },
 
-    // One threads.list call filtered by our own mapping — never a per-thread
-    // threads.get loop.
+    // Two threads.list calls (active, archived) run concurrently — still
+    // never a per-thread threads.get loop, and still filtered by our own
+    // mapping so a bot only ever sees its own chats.
     listChats: async ({ botId }) => {
       const mine = new Set(
         (
@@ -403,20 +421,37 @@ export default async function plugin(bb: BbPluginApi) {
             .all(botId) as { thread_id: string }[]
         ).map((row) => row.thread_id),
       );
-      if (mine.size === 0) return { chats: [] };
-      const threads = await bb.sdk.threads.list({
-        originPluginId: bb.pluginId,
-        limit: 200,
+      if (mine.size === 0) return { chats: [], archivedChats: [] };
+      const [activeThreads, archivedThreads] = await Promise.all([
+        bb.sdk.threads.list({
+          originPluginId: bb.pluginId,
+          limit: 200,
+          archived: false,
+        }),
+        bb.sdk.threads.list({
+          originPluginId: bb.pluginId,
+          limit: 200,
+          archived: true,
+        }),
+      ]);
+      const toChat = (thread: (typeof activeThreads)[number]) => ({
+        threadId: thread.id,
+        title: thread.title ?? thread.titleFallback,
+        status: thread.status,
+        updatedAt: thread.updatedAt,
+        pinnedAt: thread.pinnedAt,
+        archivedAt: thread.archivedAt,
       });
       return {
-        chats: threads
+        chats: sortChats(
+          activeThreads.filter((thread) => mine.has(thread.id)).map(toChat),
+        ),
+        // Archived chats are never pinned in the UI (pin/unpin only act on
+        // the active list), so a plain updatedAt-desc sort is enough here —
+        // sortChats' pinned bucket would be a no-op.
+        archivedChats: archivedThreads
           .filter((thread) => mine.has(thread.id))
-          .map((thread) => ({
-            threadId: thread.id,
-            title: thread.title ?? thread.titleFallback,
-            status: thread.status,
-            updatedAt: thread.updatedAt,
-          }))
+          .map(toChat)
           .sort((a, b) => b.updatedAt - a.updatedAt),
       };
     },
@@ -435,9 +470,13 @@ export default async function plugin(bb: BbPluginApi) {
       const botIdByOwnThreadId = new Map(
         botIdByThreadIdRows.map((row) => [row.thread_id, row.bot_id]),
       );
+      // Excludes archived threads: an archived chat is put away on purpose,
+      // so it must not resurface as the rail's subtitle or bump
+      // lastActivityAt back to the top of the bot list.
       const threads = await bb.sdk.threads.list({
         originPluginId: bb.pluginId,
         limit: 200,
+        archived: false,
       });
       for (const thread of threads) {
         const botId = botIdByOwnThreadId.get(thread.id);
@@ -513,6 +552,25 @@ export default async function plugin(bb: BbPluginApi) {
       return { threadId: thread.id };
     },
 
+    // The frontend's experimental_useSidebarThreadActions() hook covers
+    // pin/rename/archive/delete directly against the host, so this is the
+    // only mutation the plugin itself needs to expose. The ownership check
+    // below is load-bearing: without it, any caller of this RPC could pass
+    // an arbitrary threadId and unarchive a thread that has nothing to do
+    // with this plugin's bots.
+    unarchiveChat: async ({ threadId }) => {
+      // botIdByThreadId is the in-memory mirror of bot_threads kept in sync
+      // by startChat/deleteBot/thread.deleted, so checking it here is the
+      // same "is this ours" test contributeInstructions already relies on —
+      // no need for a separate SELECT against the table it mirrors.
+      if (botIdByThreadId.get(threadId) === undefined) {
+        throw new Error(`Unknown chat: ${threadId}`);
+      }
+      await bb.sdk.threads.unarchive({ threadId });
+      announce();
+      return { ok: true };
+    },
+
     listOptions: async () => {
       const [providers, projects, allProjects] = await Promise.all([
         bb.sdk.providers.list(),
@@ -558,5 +616,19 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.deleted", ({ thread }) => {
     if (!botIdByThreadId.delete(thread.id)) return;
     db.prepare("DELETE FROM bot_threads WHERE thread_id = ?").run(thread.id);
+    // Without this, a second open BB window keeps showing a chat that was
+    // just deleted from the first window until its next unrelated refresh.
+    announce();
+  });
+
+  // Deliberately does NOT touch bot_threads: archiving just puts a chat away,
+  // it doesn't end it, so the persona mapping must survive until the thread
+  // comes back via unarchiveChat (or is actually deleted). Only announce for
+  // threads that are ours — bb archives threads belonging to every plugin
+  // and to no plugin at all, and this channel exists solely to tell this
+  // plugin's own panels to refresh.
+  bb.events.on("thread.archived", ({ thread }) => {
+    if (botIdByThreadId.get(thread.id) === undefined) return;
+    announce();
   });
 }

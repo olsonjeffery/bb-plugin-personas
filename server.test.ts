@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
 
 const PROJECTS = [
@@ -36,15 +36,28 @@ function makeHost() {
           nextThread += 1;
           return { id: `thr_${nextThread}` };
         },
-        list: async () => [
-          {
-            id: "thr_1",
-            title: "Pirate",
-            titleFallback: null,
-            status: "idle",
-            updatedAt: 10,
-          },
-        ],
+        // Honors `archived` like the real threads.list so listChats/listRail
+        // can be tested against both the active and archived buckets; tests
+        // that need a richer fixture set override this via
+        // host.harness.inspection.sdk.stub("threads.list", ...).
+        list: async (args?: { archived?: boolean }) => {
+          const all = [
+            {
+              id: "thr_1",
+              title: "Pirate",
+              titleFallback: null,
+              status: "idle",
+              updatedAt: 10,
+              pinnedAt: null,
+              archivedAt: null,
+            },
+          ];
+          if (args?.archived === undefined) return all;
+          return all.filter(
+            (thread) => (thread.archivedAt !== null) === args.archived,
+          );
+        },
+        unarchive: async () => ({ ok: true }),
       },
     },
   });
@@ -337,13 +350,211 @@ describe("listChats", () => {
       request: makeRequest(),
     });
 
+    const { chats, archivedChats } = (await host.harness.behavior.callRpc(
+      "listChats",
+      { botId },
+    )) as { chats: unknown[]; archivedChats: unknown[] };
+    expect(chats).toEqual([
+      {
+        threadId: "thr_1",
+        title: "Pirate",
+        status: "idle",
+        updatedAt: 10,
+        pinnedAt: null,
+        archivedAt: null,
+      },
+    ]);
+    expect(archivedChats).toEqual([]);
+    expect(host.harness.inspection.sdk.callsTo("threads.get")).toHaveLength(0);
+  });
+
+  it("splits active vs archived threads and excludes threads that aren't this bot's own", async () => {
+    const botId = await createPublishedBot();
+    // Three real threads get mapped to this bot via startChat (thr_1..thr_3);
+    // thr_999 stands in for some other plugin's thread that just happens to
+    // come back from threads.list — it must never leak into either bucket.
+    await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    });
+    await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    });
+
+    host.harness.inspection.sdk.stub(
+      "threads.list",
+      (async (args?: { archived?: boolean }) => {
+        const all = [
+          {
+            id: "thr_1",
+            title: "Active one",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 20,
+            pinnedAt: null,
+            archivedAt: null,
+          },
+          {
+            id: "thr_2",
+            title: "Archived one",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 5,
+            pinnedAt: null,
+            archivedAt: 4,
+          },
+          {
+            id: "thr_999",
+            title: "Not ours",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 30,
+            pinnedAt: null,
+            archivedAt: null,
+          },
+        ];
+        return all.filter(
+          (thread) => (thread.archivedAt !== null) === args?.archived,
+        );
+      }) as never,
+    );
+
+    const { chats, archivedChats } = (await host.harness.behavior.callRpc(
+      "listChats",
+      { botId },
+    )) as { chats: { threadId: string }[]; archivedChats: { threadId: string }[] };
+    expect(chats.map((chat) => chat.threadId)).toEqual(["thr_1"]);
+    expect(archivedChats.map((chat) => chat.threadId)).toEqual(["thr_2"]);
+  });
+
+  it("sorts pinned chats ahead of unpinned ones, then by updatedAt descending", async () => {
+    const botId = await createPublishedBot();
+    await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    });
+    await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    });
+    await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    });
+
+    host.harness.inspection.sdk.stub(
+      "threads.list",
+      (async (args?: { archived?: boolean }) => {
+        if (args?.archived) return [];
+        return [
+          {
+            id: "thr_1",
+            title: "Newest, unpinned",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 100,
+            pinnedAt: null,
+            archivedAt: null,
+          },
+          {
+            id: "thr_2",
+            title: "Pinned first",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 10,
+            pinnedAt: 50,
+            archivedAt: null,
+          },
+          {
+            id: "thr_3",
+            title: "Pinned more recently",
+            titleFallback: null,
+            status: "idle",
+            updatedAt: 5,
+            pinnedAt: 80,
+            archivedAt: null,
+          },
+        ];
+      }) as never,
+    );
+
     const { chats } = (await host.harness.behavior.callRpc("listChats", {
       botId,
     })) as { chats: { threadId: string }[] };
-    expect(chats).toEqual([
-      { threadId: "thr_1", title: "Pirate", status: "idle", updatedAt: 10 },
+    expect(chats.map((chat) => chat.threadId)).toEqual([
+      "thr_3",
+      "thr_2",
+      "thr_1",
     ]);
-    expect(host.harness.inspection.sdk.callsTo("threads.get")).toHaveLength(0);
+  });
+});
+
+describe("unarchiveChat", () => {
+  it("rejects a threadId that isn't one of this plugin's own bot threads", async () => {
+    await expect(
+      host.harness.behavior.callRpc("unarchiveChat", {
+        threadId: "thr_not_ours",
+      }),
+    ).rejects.toThrow("Unknown chat: thr_not_ours");
+    expect(host.harness.inspection.sdk.callsTo("threads.unarchive")).toHaveLength(0);
+  });
+
+  it("unarchives a chat that belongs to this bot and announces the change", async () => {
+    const botId = await createPublishedBot();
+    const { threadId } = (await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    })) as { threadId: string };
+
+    const result = (await host.harness.behavior.callRpc("unarchiveChat", {
+      threadId,
+    })) as { ok: boolean };
+    expect(result).toEqual({ ok: true });
+    expect(host.harness.inspection.sdk.callsTo("threads.unarchive")).toEqual([
+      [{ threadId }],
+    ]);
+    expect(host.harness.inspection.realtimeSignals.length).toBeGreaterThan(0);
+  });
+});
+
+describe("thread.archived event", () => {
+  it("announces but keeps the bot_threads mapping intact for our own threads", async () => {
+    const botId = await createPublishedBot();
+    const { threadId } = (await host.harness.behavior.callRpc("startChat", {
+      botId,
+      request: makeRequest(),
+    })) as { threadId: string };
+
+    const signalsBefore = host.harness.inspection.realtimeSignals.length;
+    await host.harness.behavior.emitThreadEvent("thread.archived", {
+      thread: makeThreadResponse({ id: threadId }),
+    });
+
+    // Still mapped: contributeInstructions must keep returning this bot's
+    // persona once the thread is unarchived and resumed.
+    const provide = host.harness.registrations.instructionProvider!;
+    expect(provide({ threadId, projectId: "proj_personal" })).toContain(
+      "Pirate",
+    );
+    const row = host.bb.storage
+      .database()
+      .prepare("SELECT thread_id FROM bot_threads WHERE thread_id = ?")
+      .get(threadId);
+    expect(row).toBeTruthy();
+    expect(host.harness.inspection.realtimeSignals.length).toBeGreaterThan(
+      signalsBefore,
+    );
+  });
+
+  it("does not announce for a thread that isn't mapped to any of our bots", async () => {
+    const signalsBefore = host.harness.inspection.realtimeSignals.length;
+    await host.harness.behavior.emitThreadEvent("thread.archived", {
+      thread: makeThreadResponse({ id: "thr_not_ours" }),
+    });
+    expect(host.harness.inspection.realtimeSignals.length).toBe(
+      signalsBefore,
+    );
   });
 });
 
