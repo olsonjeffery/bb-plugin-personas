@@ -16,8 +16,11 @@ section: one row per cooperating plugin this one can use.
 
 - **Floating Notes** — a green check when it is installed and enabled, a red
   X when it is not.
+- **Docs** — BB's official Docs plugin (installed id `simple-notes`): a green
+  check when it is installed and enabled, a red X when it is not.
 - A missing plugin shows an inline **Install** link to its bb plugin page
-  (Floating Notes: <https://github.com/vburojevic/bb-plugin-floating-notes>).
+  (Floating Notes: <https://github.com/vburojevic/bb-plugin-floating-notes>;
+  Docs: <https://github.com/get-bb/bb/tree/main/plugins/docs>).
 - Rows read fresh from the installed-plugin list on every visit; installs,
   enables, and disables are reflected on the next open.
 

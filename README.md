@@ -133,6 +133,10 @@ one row for each cooperating plugin Personas can use, currently:
 - **Floating Notes** — a green check when it is installed and enabled, a red X
   when it is not. While it is missing, the row links to its plugin page
   ([vburojevic/bb-plugin-floating-notes](https://github.com/vburojevic/bb-plugin-floating-notes)).
+- **Docs** (BB's official Docs plugin, installed id `simple-notes`) — a green
+  check when it is installed and enabled, a red X when it is not. While it is
+  missing, the row links to its plugin page
+  ([get-bb/bb/plugins/docs](https://github.com/get-bb/bb/tree/main/plugins/docs)).
 
 The rows read the installed-plugin list fresh on every visit, so installing,
 enabling, or disabling a plugin is reflected the next time the page opens.
