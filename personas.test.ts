@@ -1,23 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampPromptText,
   displayName,
   draftBlockers,
   emojiPickerHint,
   EMOJI_GROUPS,
   EMOJIS,
+  hasPromptConflict,
   INSTRUCTION_LIMIT,
   isSingleEmoji,
+  joinedPromptText,
   MAX_INSTRUCTIONS,
+  MAX_PROMPT_TEXT,
+  newPromptId,
   normalizeEmoji,
   parseRoute,
   pickEmoji,
+  PROMPT_PREVIEW_LIMIT,
+  promptPreview,
   previewInstructions,
   REASONING_LEVELS,
   renderPersonaInstructions,
   routeToSubPath,
   rowToPersona,
+  rowToPrompt,
   sortChats,
   type Persona,
+  type PersonaPrompt,
+  type PersonaPromptRow,
   type PersonaRow,
 } from "./personas.js";
 
@@ -363,5 +373,133 @@ describe("rowToPersona", () => {
   it("reads an out-of-union stored reasoning level as unset", () => {
     expect(REASONING_LEVELS).not.toContain("turbo");
     expect(rowToPersona({ ...row, reasoning_level: "turbo" }).reasoningLevel).toBeNull();
+  });
+});
+
+describe("rowToPrompt", () => {
+  const row: PersonaPromptRow = {
+    id: "prompt_1",
+    persona_id: "persona_1",
+    type: "text",
+    text: "Always answer in pirate speak.",
+    position: 3,
+    created_at: 5,
+    updated_at: 6,
+  };
+
+  it("maps the snake_case row onto the prompt shape", () => {
+    expect(rowToPrompt(row)).toEqual({
+      id: "prompt_1",
+      personaId: "persona_1",
+      type: "text",
+      text: "Always answer in pirate speak.",
+      position: 3,
+      createdAt: 5,
+      updatedAt: 6,
+    });
+  });
+
+  it("reads any unrecognized stored type as text", () => {
+    // "text" is the only prompt type so far; a future downgrade must not
+    // push an unknown string uncaught into the prompt RPCs' zod schemas.
+    expect(rowToPrompt({ ...row, type: "voice" }).type).toBe("text");
+  });
+});
+
+describe("newPromptId", () => {
+  it("uses the prompt_ prefix with a short hex tail", () => {
+    expect(newPromptId()).toMatch(/^prompt_[0-9a-f]{16}$/);
+  });
+});
+
+describe("clampPromptText", () => {
+  it("trims surrounding whitespace", () => {
+    expect(clampPromptText("  Always answer in pirate speak.  ")).toBe(
+      "Always answer in pirate speak.",
+    );
+  });
+
+  it("slices to MAX_PROMPT_TEXT", () => {
+    expect(MAX_PROMPT_TEXT).toBe(MAX_INSTRUCTIONS);
+    expect(clampPromptText("y".repeat(MAX_PROMPT_TEXT + 10))).toBe(
+      "y".repeat(MAX_PROMPT_TEXT),
+    );
+  });
+});
+
+describe("promptPreview", () => {
+  it("passes text at or under the preview limit through unchanged", () => {
+    expect(PROMPT_PREVIEW_LIMIT).toBe(24);
+    expect(promptPreview("Be terse.")).toBe("Be terse.");
+    expect(promptPreview("x".repeat(PROMPT_PREVIEW_LIMIT))).toBe(
+      "x".repeat(PROMPT_PREVIEW_LIMIT),
+    );
+  });
+
+  it("truncates overflow to the first 24 characters plus an ellipsis", () => {
+    expect(promptPreview(`${"x".repeat(PROMPT_PREVIEW_LIMIT)}y`)).toBe(
+      `${"x".repeat(PROMPT_PREVIEW_LIMIT)}…`,
+    );
+  });
+});
+
+describe("hasPromptConflict", () => {
+  it("conflicts when the first 24 characters are identical even though the tails differ", () => {
+    expect(
+      hasPromptConflict([`${"a".repeat(PROMPT_PREVIEW_LIMIT)} one`], `${"a".repeat(PROMPT_PREVIEW_LIMIT)} two`),
+    ).toBe(true);
+  });
+
+  it("conflicts on two identical short prompts", () => {
+    expect(hasPromptConflict(["Be terse."], "Be terse.")).toBe(true);
+  });
+
+  it("does not conflict when the 24th character differs", () => {
+    expect(
+      hasPromptConflict(
+        ["a".repeat(PROMPT_PREVIEW_LIMIT - 1) + "x"],
+        "a".repeat(PROMPT_PREVIEW_LIMIT - 1) + "y",
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores surrounding whitespace when comparing", () => {
+    expect(
+      hasPromptConflict(
+        [`   ${"b".repeat(PROMPT_PREVIEW_LIMIT)} tail`],
+        "b".repeat(PROMPT_PREVIEW_LIMIT),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for an empty pool", () => {
+    expect(hasPromptConflict([], "Anything.")).toBe(false);
+  });
+});
+
+describe("joinedPromptText", () => {
+  const prompt = (id: string, text: string, position: number): PersonaPrompt => ({
+    id,
+    personaId: "persona_1",
+    type: "text",
+    text,
+    position,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  it("joins prompt texts in pool order with a blank line between them", () => {
+    expect(
+      joinedPromptText([
+        prompt("prompt_1", "Always answer in pirate speak.", 0),
+        prompt("prompt_2", "Never break character.", 1),
+      ]),
+    ).toBe("Always answer in pirate speak.\n\nNever break character.");
+  });
+
+  it("skips prompts with empty text", () => {
+    expect(
+      joinedPromptText([prompt("prompt_1", "", 0), prompt("prompt_2", "Be terse.", 1)]),
+    ).toBe("Be terse.");
   });
 });

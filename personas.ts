@@ -72,6 +72,32 @@ export interface Persona {
   updatedAt: number;
 }
 
+/** The prompt types a pool entry can carry; "text" is the only one so far. */
+export const PROMPT_TYPES = ["text"] as const;
+
+export type PromptType = (typeof PROMPT_TYPES)[number];
+
+/**
+ * Per-prompt text budget. Same 3500 the old single-instructions field had, so
+ * one prompt can carry everything a pre-pool persona could.
+ */
+export const MAX_PROMPT_TEXT = MAX_INSTRUCTIONS;
+
+/** How much of a prompt's text a pool entry displays before its ellipsis. */
+export const PROMPT_PREVIEW_LIMIT = 24;
+
+/** One entry in a persona's prompt pool. Each prompt belongs to one persona. */
+export interface PersonaPrompt {
+  id: string;
+  personaId: string;
+  type: PromptType;
+  text: string;
+  /** Insertion order within the persona's pool; ties break on createdAt. */
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export function pickEmoji(): string {
   return EMOJIS[Math.floor(Math.random() * EMOJIS.length)]!;
 }
@@ -156,8 +182,56 @@ export function newPersonaId(): string {
   return `persona_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
+export function newPromptId(): string {
+  return `prompt_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+}
+
 export function clampInstructions(instructions: string): string {
   return instructions.trim().slice(0, MAX_INSTRUCTIONS);
+}
+
+/** Trims and length-bounds a prompt's text the way savePersona did for instructions. */
+export function clampPromptText(text: string): string {
+  return text.trim().slice(0, MAX_PROMPT_TEXT);
+}
+
+/**
+ * The pool-entry display: the first 24 characters, with an ellipsis only
+ * when the text actually overflows.
+ */
+export function promptPreview(text: string): string {
+  return text.length > PROMPT_PREVIEW_LIMIT
+    ? `${text.slice(0, PROMPT_PREVIEW_LIMIT)}…`
+    : text;
+}
+
+/**
+ * The uniqueness key the pool enforces: one persona can never hold two
+ * prompts whose first 24 characters are identical.
+ */
+export function promptConflictKey(text: string): string {
+  return clampPromptText(text).slice(0, PROMPT_PREVIEW_LIMIT);
+}
+
+/**
+ * True when `text` collides with any of `existing` on the first 24
+ * characters. Scope is a single persona's pool — the same text on two
+ * different personas is fine.
+ */
+export function hasPromptConflict(
+  existing: readonly string[],
+  text: string,
+): boolean {
+  const key = promptConflictKey(text);
+  return existing.some((candidate) => promptConflictKey(candidate) === key);
+}
+
+/** All of a persona's prompt texts joined into the block its chats receive. */
+export function joinedPromptText(prompts: readonly PersonaPrompt[]): string {
+  return prompts
+    .map((prompt) => prompt.text)
+    .filter((text) => text.length > 0)
+    .join("\n\n");
 }
 
 /** Single-line preview of a persona's instructions for list cards. */
@@ -259,6 +333,31 @@ export interface PersonaRow {
   status: string;
   created_at: number;
   updated_at: number;
+}
+
+/** A prompt-pool row as stored in SQLite (snake_case). */
+export interface PersonaPromptRow {
+  id: string;
+  persona_id: string;
+  type: string;
+  text: string;
+  position: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function rowToPrompt(row: PersonaPromptRow): PersonaPrompt {
+  return {
+    id: row.id,
+    personaId: row.persona_id,
+    // "text" is the only prompt type so far, so any stored value reads as
+    // one rather than flowing uncaught into the prompt RPCs' zod schemas.
+    type: "text",
+    text: row.text,
+    position: row.position,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 /** The subset of ChatSchema (server.ts) that sortChats needs to order a list. */
