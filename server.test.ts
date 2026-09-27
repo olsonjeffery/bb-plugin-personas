@@ -15,8 +15,9 @@ function makeHost() {
     sdk: {
       projects: { list: async () => PROJECTS },
       plugins: {
-        // One running Floating Notes by default, so tests that don't care
-        // about health see the happy path; health tests stub their own state.
+        // Floating Notes and the official Docs plugin running by default, so
+        // tests that don't care about health see the happy path; health tests
+        // stub their own state.
         list: async () => ({
           plugins: [
             {
@@ -30,6 +31,12 @@ function makeHost() {
               enabled: true,
               status: "running",
               version: "1.2.1",
+            },
+            {
+              id: "simple-notes",
+              enabled: true,
+              status: "running",
+              version: "0.2.3",
             },
           ],
         }),
@@ -647,7 +654,7 @@ describe("listOptions", () => {
 });
 
 describe("getPluginHealth", () => {
-  it("reports Floating Notes available when it is installed, enabled, and running", async () => {
+  it("reports Floating Notes and Docs available when both are installed, enabled, and running", async () => {
     const health = (await host.harness.behavior.callRpc(
       "getPluginHealth",
       null,
@@ -666,10 +673,20 @@ describe("getPluginHealth", () => {
         installUrl: null,
         available: true,
       },
+      {
+        id: "simple-notes",
+        label: "Docs",
+        installed: true,
+        enabled: true,
+        status: "running",
+        version: "0.2.3",
+        installUrl: null,
+        available: true,
+      },
     ]);
   });
 
-  it("reports Floating Notes missing with its plugin page link when it is not installed", async () => {
+  it("reports each missing plugin with its own plugin page link", async () => {
     host.harness.inspection.sdk.stub(
       "plugins.list",
       (async () => ({
@@ -696,6 +713,16 @@ describe("getPluginHealth", () => {
         installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
         available: false,
       },
+      {
+        id: "simple-notes",
+        label: "Docs",
+        installed: false,
+        enabled: false,
+        status: null,
+        version: null,
+        installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
+        available: false,
+      },
     ]);
   });
 
@@ -710,6 +737,12 @@ describe("getPluginHealth", () => {
             enabled: false,
             status: "disabled",
             version: "1.2.1",
+          },
+          {
+            id: "simple-notes",
+            enabled: true,
+            status: "running",
+            version: "0.2.3",
           },
         ],
       })) as never,
@@ -729,6 +762,12 @@ describe("getPluginHealth", () => {
       status: "disabled",
       installUrl: null,
       available: false,
+    });
+    // Docs is unaffected by Floating Notes' state.
+    expect(health.tools[1]).toMatchObject({
+      id: "simple-notes",
+      available: true,
+      installUrl: null,
     });
   });
 
