@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-personas",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "engines": {
     "bb": ">=0.39.0",
@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Personas",
-    "description": "Create custom personas with their own instructions and model, then chat with them.",
+    "description": "Create custom personas with their own prompt pool and model, then chat with them.",
     "branding": {
       "icon": "./assets/icon.svg",
       "experimental_icons": {

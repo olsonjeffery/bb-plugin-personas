@@ -2,9 +2,9 @@
 
 Create a small team of AI personas inside BB.
 
-Each persona has its own name, instructions, model provider, model, and reasoning
-level. Create a persona once, give it a clear job, and use it whenever you need it
-without repeating the same instructions every time.
+Each persona has its own name, pool of prompts, model provider, model, and
+reasoning level. Create a persona once, give it a clear job, and use it whenever
+you need it without repeating the same instructions every time.
 
 Your writing persona can stay focused on clear writing. Your research persona can use a
 different model. Your coding persona can use the model and reasoning level that
@@ -39,7 +39,7 @@ The goal is simple: build a personal fleet of personas that work the way you wor
 With Personas, you can:
 
 - create personas for writing, research, coding, planning, reviews, or any repeatable work
-- give every persona its own instructions and personality
+- build each persona from a pool of prompts — as many as it needs
 - choose a provider, model, and reasoning level per persona
 - connect a persona to a project when it needs repository context
 - keep personas without a project for everyday conversations
@@ -69,13 +69,13 @@ Requires BB `>=0.39.0`.
 
 1. Open **Personas** from the BB sidebar.
 2. Click **New persona**.
-3. Give the persona a name and write its instructions.
+3. Give the persona a name and add prompts to its prompt pool.
 4. Choose its provider, model, and reasoning level.
 5. Optionally select a project if the persona should work with a repository.
 6. Click **Publish**.
 7. Start a chat.
 
-<img alt="The Set up persona form: name, emoji, instructions, provider, model, reasoning level and project, with Publish persona disabled until the required fields are filled." src="assets/screenshots/persona-creation-light.png">
+<img alt="The Set up persona form: name, emoji, prompt pool, provider, model, reasoning level and project, with Publish persona disabled until the required fields are filled." src="assets/screenshots/persona-creation-light.png">
 
 <sub>New personas start as drafts. Publish stays disabled until the persona has a name, a provider, and a model.</sub>
 
@@ -91,8 +91,8 @@ For example, you could create:
 
 ## How personas work
 
-Every persona has its own saved instructions. When you start a chat with that persona,
-those instructions are applied automatically for that conversation.
+Every persona has its own prompt pool. When you start a chat with that persona,
+every prompt in the pool is applied automatically for that conversation.
 
 You can edit a persona at any time. Changes apply to future chats; an active chat
 keeps the instructions it started with.
@@ -104,10 +104,27 @@ for writing, thinking, planning, and other general conversations.
 The provider, model, project, and reasoning level are used as defaults when you
 start a chat. You can still change them before sending the first message.
 
-## Drafts and published personas
+## The prompt pool
 
-New personas start as drafts. This gives you space to set up their instructions,
+A persona's standing instructions live in its prompt pool. The editor lists every
+prompt as an entry — the first 24 characters plus an ellipsis when the text is
+longer — with **Edit** and **Remove** buttons beside it. Type a prompt into the
+text box (up to 3500 characters) and click **+ Add** to put it in the pool.
+
+Two prompts in the same pool can't start with the same 24 characters, so each
+entry stays recognizable at a glance. The same text on two different personas is
+fine. More prompt types are planned; today every prompt is a text prompt.
+
+New personas start as drafts. This gives you space to set up their prompt pool,
 provider, and model before using them.
+
+A draft cannot start a chat until it has:
+
+- a name
+- a provider
+- a model
+
+Once published, the persona is ready to use from the Personas sidebar.
 
 A draft cannot start a chat until it has:
 
