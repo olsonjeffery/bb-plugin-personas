@@ -4,13 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { Icon } from "@/components/ui/icon";
-import { BotAvatar } from "@/components/BotAvatar";
-import { useBotsRpc, useQuery } from "@/components/use-query";
+import { PersonaAvatar } from "@/components/PersonaAvatar";
+import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import { cn } from "@/lib/utils";
-import { displayName, previewInstructions } from "@/bots";
+import { displayName, previewInstructions } from "@/personas";
 
-const WIDTH_KEY = "bots:rail:width";
+const WIDTH_KEY = "personas:rail:width";
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 420;
 const DEFAULT_WIDTH = 260;
@@ -45,7 +45,7 @@ function readStoredWidth(): number {
 }
 
 /**
- * Short relative timestamp for rail rows and the bot page's chat list:
+ * Short relative timestamp for rail rows and the persona page's chat list:
  * "now", "2m", "3h", "5d", then a date.
  */
 export function formatRelative(timestamp: number): string {
@@ -61,8 +61,8 @@ export function formatRelative(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
-  const rpc = useBotsRpc();
+export function PersonaRail({ selectedPersonaId }: { selectedPersonaId: string | null }) {
+  const rpc = usePersonasRpc();
   const navigate = useBbNavigate();
   const { data, error } = useQuery(() => rpc.call("listRail", null), "rail");
   const [width, setWidth] = useState<number>(() => readStoredWidth());
@@ -71,11 +71,11 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
   // Kept for the resize handle only; nothing here reads the node itself.
   const dragOrigin = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  async function createBot() {
+  async function createPersona() {
     setIsCreating(true);
     try {
-      const created = await rpc.call("createBot", null);
-      navigate.toPluginPanel(PANEL_PATH, { subPath: `${created.botId}/edit` });
+      const created = await rpc.call("createPersona", null);
+      navigate.toPluginPanel(PANEL_PATH, { subPath: `${created.personaId}/edit` });
     } finally {
       setIsCreating(false);
     }
@@ -111,7 +111,7 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
     window.addEventListener("pointerup", onUp);
   }
 
-  const bots = data?.bots ?? [];
+  const personas = data?.personas ?? [];
 
   return (
     <div
@@ -119,12 +119,12 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
       className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-border"
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <h2 className="text-sm font-medium">Bots</h2>
+        <h2 className="text-sm font-medium">Personas</h2>
         <button
           type="button"
-          aria-label={isCreating ? "Creating…" : "New bot"}
+          aria-label={isCreating ? "Creating…" : "New persona"}
           disabled={isCreating}
-          onClick={() => void createBot()}
+          onClick={() => void createPersona()}
           className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex items-center justify-center hover:bg-accent disabled:opacity-50`}
         >
           <Icon name="Plus" aria-hidden />
@@ -134,31 +134,31 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error !== null ? (
           <p className="p-3 text-sm text-destructive">{error}</p>
-        ) : bots.length === 0 ? (
+        ) : personas.length === 0 ? (
           <div className="p-4 text-center">
-            <p className="text-sm text-muted-foreground">No bots yet.</p>
+            <p className="text-sm text-muted-foreground">No personas yet.</p>
             <Button
               size="sm"
               className="mt-2"
               disabled={isCreating}
-              onClick={() => void createBot()}
+              onClick={() => void createPersona()}
             >
-              New bot
+              New persona
             </Button>
           </div>
         ) : (
           <ul>
-            {bots.map((bot) => {
-              const isSelected = bot.id === selectedBotId;
-              const isDraft = bot.status === "draft";
-              const newestChat = bot.chats[0];
+            {personas.map((persona) => {
+              const isSelected = persona.id === selectedPersonaId;
+              const isDraft = persona.status === "draft";
+              const newestChat = persona.chats[0];
               const secondary =
                 newestChat === undefined
-                  ? previewInstructions(bot.instructions)
+                  ? previewInstructions(persona.instructions)
                   : newestChat.title ?? "New chat";
 
               return (
-                <li key={bot.id}>
+                <li key={persona.id}>
                   <div
                     className={cn(
                       "flex items-stretch",
@@ -172,18 +172,18 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
                     <button
                       type="button"
                       onClick={() =>
-                        navigate.toPluginPanel(PANEL_PATH, { subPath: bot.id })
+                        navigate.toPluginPanel(PANEL_PATH, { subPath: persona.id })
                       }
                       className={cn(
                         "flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-accent",
                         isDraft ? "text-muted-foreground" : "",
                       )}
                     >
-                      <BotAvatar botId={bot.id} emoji={bot.emoji} size="sm" />
+                      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span className="truncate text-sm font-medium">
-                            {displayName(bot)}
+                            {displayName(persona)}
                           </span>
                           {isDraft ? (
                             <Badge
@@ -194,7 +194,7 @@ export function BotRail({ selectedBotId }: { selectedBotId: string | null }) {
                             </Badge>
                           ) : null}
                           <span className="ml-auto shrink-0 pl-1 text-[10px] text-muted-foreground">
-                            {formatRelative(bot.lastActivityAt)}
+                            {formatRelative(persona.lastActivityAt)}
                           </span>
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">

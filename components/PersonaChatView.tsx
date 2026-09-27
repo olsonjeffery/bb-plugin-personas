@@ -2,31 +2,31 @@ import { ThreadChat, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { Icon } from "@/components/ui/icon";
-import { BotHeader } from "@/components/BotHome";
-import { useBotsRpc, useQuery } from "@/components/use-query";
+import { PersonaHeader } from "@/components/PersonaHome";
+import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 
-export function BotChatView({
-  botId,
+export function PersonaChatView({
+  personaId,
   threadId,
   onBack,
 }: {
-  botId: string;
+  personaId: string;
   threadId: string;
   onBack?: () => void;
 }) {
-  const rpc = useBotsRpc();
+  const rpc = usePersonasRpc();
   const navigate = useBbNavigate();
-  const { data, error } = useQuery(() => rpc.call("getBot", { botId }), `chat:${botId}`);
-  const bot = data?.bot ?? null;
+  const { data, error } = useQuery(() => rpc.call("getPersona", { personaId }), `chat:${personaId}`);
+  const persona = data?.persona ?? null;
 
-  // Deleting a bot leaves its chats intact (they just stop receiving the
+  // Deleting a persona leaves its chats intact (they just stop receiving the
   // persona), so this stays reachable from an already-open chat.
   async function remove() {
-    if (bot === null) return;
+    if (persona === null) return;
     try {
-      await rpc.call("deleteBot", { botId });
-      toast.success(`Deleted ${bot.name}`);
+      await rpc.call("deletePersona", { personaId });
+      toast.success(`Deleted ${persona.name}`);
       navigate.toPluginPanel(PANEL_PATH, { subPath: "", replace: true });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
@@ -35,7 +35,7 @@ export function BotChatView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {bot === null ? (
+      {persona === null ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
           {onBack === undefined ? null : (
             <button
@@ -50,25 +50,25 @@ export function BotChatView({
           {error !== null ? (
             <span className="truncate text-sm text-destructive">{error}</span>
           ) : (
-            <span className="truncate text-sm font-medium">Bot</span>
+            <span className="truncate text-sm font-medium">Persona</span>
           )}
         </div>
       ) : (
-        <BotHeader
-          bot={bot}
+        <PersonaHeader
+          persona={persona}
           onBack={onBack}
           onSettings={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/edit` })
+            navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
           }
           onNewChat={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/new` })
+            navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/new` })
           }
-          onEditBot={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/edit` })
+          onEditPersona={() =>
+            navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
           }
-          onDeleteBot={() => void remove()}
-          onGoToBotPage={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: botId })
+          onDeletePersona={() => void remove()}
+          onGoToPersonaPage={() =>
+            navigate.toPluginPanel(PANEL_PATH, { subPath: personaId })
           }
         />
       )}

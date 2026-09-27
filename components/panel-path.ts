@@ -1,1 +1,1 @@
-export const PANEL_PATH = "bots";
+export const PANEL_PATH = "personas";

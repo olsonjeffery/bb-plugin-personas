@@ -17,36 +17,36 @@ import {
 } from "@/components/ui/dialog";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { Icon } from "@/components/ui/icon";
-import { BotAvatar } from "@/components/BotAvatar";
+import { PersonaAvatar } from "@/components/PersonaAvatar";
 import { ChatRow } from "@/components/ChatRow";
-import { useBotsRpc, useQuery } from "@/components/use-query";
+import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import { cn } from "@/lib/utils";
-import { displayName, draftBlockers, type Bot } from "@/bots";
+import { displayName, draftBlockers, type Persona } from "@/personas";
 
 /**
- * The content-pane header shared by BotHome and BotChatView. There's no
+ * The content-pane header shared by PersonaHome and PersonaChatView. There's no
  * dropdown primitive vendored under components/ui and this plugin adds no
  * new dependencies, so the more-actions menu is a plain absolutely-positioned
  * panel of buttons rather than a radix dropdown.
  */
-export function BotHeader({
-  bot,
+export function PersonaHeader({
+  persona,
   onBack,
   onSettings,
   onNewChat,
-  onEditBot,
-  onDeleteBot,
-  onGoToBotPage,
+  onEditPersona,
+  onDeletePersona,
+  onGoToPersonaPage,
 }: {
-  bot: Bot;
+  persona: Persona;
   onBack?: () => void;
   onSettings: () => void;
   onNewChat: () => void;
-  onEditBot: () => void;
-  onDeleteBot: () => void;
-  /** Omit when already on the bot's own page — the name renders as plain text. */
-  onGoToBotPage?: () => void;
+  onEditPersona: () => void;
+  onDeletePersona: () => void;
+  /** Omit when already on the persona's own page — the name renders as plain text. */
+  onGoToPersonaPage?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -69,7 +69,7 @@ export function BotHeader({
     triggerRef.current?.focus();
   }
 
-  const subtitle = [bot.providerId, bot.model, bot.reasoningLevel]
+  const subtitle = [persona.providerId, persona.model, persona.reasoningLevel]
     .filter((part) => part !== null && part !== "")
     .join(" · ");
 
@@ -85,17 +85,17 @@ export function BotHeader({
           <Icon name="ChevronLeft" aria-hidden />
         </button>
       )}
-      <BotAvatar botId={bot.id} emoji={bot.emoji} size="sm" />
+      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} size="sm" />
       <div className="min-w-0 flex-1">
-        {onGoToBotPage === undefined ? (
-          <p className="truncate text-sm font-medium">{displayName(bot)}</p>
+        {onGoToPersonaPage === undefined ? (
+          <p className="truncate text-sm font-medium">{displayName(persona)}</p>
         ) : (
           <button
             type="button"
-            onClick={onGoToBotPage}
+            onClick={onGoToPersonaPage}
             className="truncate text-left text-sm font-medium hover:underline"
           >
-            {displayName(bot)}
+            {displayName(persona)}
           </button>
         )}
         {subtitle === "" ? null : (
@@ -104,7 +104,7 @@ export function BotHeader({
       </div>
       <button
         type="button"
-        aria-label="Edit bot settings"
+        aria-label="Edit persona settings"
         onClick={onSettings}
         className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex shrink-0 items-center justify-center hover:bg-accent`}
       >
@@ -147,11 +147,11 @@ export function BotHeader({
               role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
-                onEditBot();
+                onEditPersona();
               }}
               className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             >
-              Edit bot
+              Edit persona
             </button>
             <button
               type="button"
@@ -162,7 +162,7 @@ export function BotHeader({
               }}
               className="block w-full rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-accent"
             >
-              Delete bot
+              Delete persona
             </button>
           </div>
         ) : null}
@@ -173,7 +173,7 @@ export function BotHeader({
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {displayName(bot)}?</DialogTitle>
+            <DialogTitle>Delete {displayName(persona)}?</DialogTitle>
             <DialogDescription>
               Its chats stay in BB but stop following these instructions.
             </DialogDescription>
@@ -186,7 +186,7 @@ export function BotHeader({
               variant="destructive"
               onClick={() => {
                 setDeleteDialogOpen(false);
-                onDeleteBot();
+                onDeletePersona();
               }}
             >
               Delete
@@ -198,28 +198,28 @@ export function BotHeader({
   );
 }
 
-export function BotHome({
-  botId,
+export function PersonaHome({
+  personaId,
   onBack,
 }: {
-  botId: string;
+  personaId: string;
   onBack?: () => void;
 }) {
-  const rpc = useBotsRpc();
+  const rpc = usePersonasRpc();
   const navigate = useBbNavigate();
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
-  // One round trip: the bot, the picker options the composer needs, and its
+  // One round trip: the persona, the picker options the composer needs, and its
   // chat list, so this pane never waterfalls into a second call after load.
   const { data, error, reload } = useQuery(
     () =>
       Promise.all([
-        rpc.call("getBot", { botId }),
+        rpc.call("getPersona", { personaId }),
         rpc.call("listOptions", null),
-        rpc.call("listChats", { botId }),
+        rpc.call("listChats", { personaId }),
       ]),
-    `home:${botId}`,
+    `home:${personaId}`,
   );
 
   if (error !== null) {
@@ -229,29 +229,29 @@ export function BotHome({
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   }
 
-  const bot = data[0].bot;
-  if (bot === null) {
+  const persona = data[0].persona;
+  if (persona === null) {
     return (
       <p className="p-4 text-sm text-muted-foreground">
-        This bot was deleted.
+        This persona was deleted.
       </p>
     );
   }
   const { personalProjectId } = data[1];
   const chats = data[2].chats;
   const archivedChats = data[2].archivedChats;
-  // TS's control-flow narrowing of `bot` doesn't reach into the closures
-  // below, so the name is captured here rather than re-read from `bot`.
-  const botName = displayName(bot);
+  // TS's control-flow narrowing of `persona` doesn't reach into the closures
+  // below, so the name is captured here rather than re-read from `persona`.
+  const personaName = displayName(persona);
 
   // The composer only clears its draft when onSubmit resolves and keeps it
   // if onSubmit throws, so a failed create never loses the user's message
   // or uploaded images — toast and rethrow rather than swallow the error.
   async function startChat(request: NewThreadRequest) {
     try {
-      const started = await rpc.call("startChat", { botId, request });
+      const started = await rpc.call("startChat", { personaId, request });
       navigate.toPluginPanel(PANEL_PATH, {
-        subPath: `${botId}/${started.threadId}`,
+        subPath: `${personaId}/${started.threadId}`,
       });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
@@ -261,40 +261,40 @@ export function BotHome({
 
   async function remove() {
     try {
-      await rpc.call("deleteBot", { botId });
-      toast.success(`Deleted ${botName}`);
+      await rpc.call("deletePersona", { personaId });
+      toast.success(`Deleted ${personaName}`);
       navigate.toPluginPanel(PANEL_PATH, { subPath: "", replace: true });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
-  const isDraft = bot.status === "draft";
-  const blockers = draftBlockers(bot);
+  const isDraft = persona.status === "draft";
+  const blockers = draftBlockers(persona);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <BotHeader
-        bot={bot}
+      <PersonaHeader
+        persona={persona}
         onBack={onBack}
         onSettings={() =>
-          navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/edit` })
+          navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
         }
         onNewChat={() =>
-          navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/new` })
+          navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/new` })
         }
-        onEditBot={() =>
-          navigate.toPluginPanel(PANEL_PATH, { subPath: `${botId}/edit` })
+        onEditPersona={() =>
+          navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
         }
-        onDeleteBot={() => void remove()}
+        onDeletePersona={() => void remove()}
       />
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
         <div className="mx-auto w-full max-w-2xl space-y-5">
-          {bot.instructions.length === 0 ? null : (
+          {persona.instructions.length === 0 ? null : (
             <div className="rounded-lg border border-border bg-card p-3">
               {/* No `block` here: it also sets `display` and, sitting later in
                   the generated CSS at equal specificity, silently beats
-                  line-clamp's -webkit-box — that's what let the old BotDetail
+                  line-clamp's -webkit-box — that's what let the old PersonaDetail
                   page render the whole instruction text uncollapsed. */}
               <span
                 className={cn(
@@ -302,7 +302,7 @@ export function BotHome({
                   instructionsExpanded ? "" : "line-clamp-3",
                 )}
               >
-                {bot.instructions}
+                {persona.instructions}
               </span>
               <button
                 type="button"
@@ -324,7 +324,7 @@ export function BotHome({
           {isDraft ? (
             <div className="rounded-lg border border-dashed border-border p-4">
               <p className="text-sm font-medium">
-                Finish setting up this bot
+                Finish setting up this persona
               </p>
               {blockers.length > 0 ? (
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -336,7 +336,7 @@ export function BotHome({
                 className="mt-3"
                 onClick={() =>
                   navigate.toPluginPanel(PANEL_PATH, {
-                    subPath: `${botId}/edit`,
+                    subPath: `${personaId}/edit`,
                   })
                 }
               >
@@ -346,15 +346,15 @@ export function BotHome({
           ) : (
             <>
               <NewThreadComposer
-                defaultProjectId={bot.projectId ?? personalProjectId ?? undefined}
-                defaultProviderId={bot.providerId}
-                defaultModel={bot.model}
-                {...(bot.reasoningLevel === null
+                defaultProjectId={persona.projectId ?? personalProjectId ?? undefined}
+                defaultProviderId={persona.providerId}
+                defaultModel={persona.model}
+                {...(persona.reasoningLevel === null
                   ? {}
-                  : { defaultReasoningLevel: bot.reasoningLevel })}
-                placeholder={`Message ${displayName(bot)}…`}
+                  : { defaultReasoningLevel: persona.reasoningLevel })}
+                placeholder={`Message ${displayName(persona)}…`}
                 layout="document"
-                draftKey={`bots:start:${botId}`}
+                draftKey={`personas:start:${personaId}`}
                 onSubmit={startChat}
               />
 
@@ -375,7 +375,7 @@ export function BotHome({
                           archived={false}
                           onOpen={() =>
                             navigate.toPluginPanel(PANEL_PATH, {
-                              subPath: `${botId}/${chat.threadId}`,
+                              subPath: `${personaId}/${chat.threadId}`,
                             })
                           }
                           reload={reload}
@@ -412,7 +412,7 @@ export function BotHome({
                             archived
                             onOpen={() =>
                               navigate.toPluginPanel(PANEL_PATH, {
-                                subPath: `${botId}/${chat.threadId}`,
+                                subPath: `${personaId}/${chat.threadId}`,
                               })
                             }
                             reload={reload}

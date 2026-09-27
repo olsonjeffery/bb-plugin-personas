@@ -13,16 +13,16 @@ import {
   pickEmoji,
   previewInstructions,
   REASONING_LEVELS,
-  renderBotInstructions,
+  renderPersonaInstructions,
   routeToSubPath,
-  rowToBot,
+  rowToPersona,
   sortChats,
-  type Bot,
-  type BotRow,
-} from "./bots.js";
+  type Persona,
+  type PersonaRow,
+} from "./personas.js";
 
-const bot: Bot = {
-  id: "bot_1",
+const persona: Persona = {
+  id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
   instructions: "Always answer in pirate speak.",
@@ -39,32 +39,32 @@ describe("parseRoute", () => {
   it("maps every subPath shape", () => {
     expect(parseRoute("")).toEqual({ view: "list" });
     expect(parseRoute("new")).toEqual({ view: "new" });
-    expect(parseRoute("bot_1")).toEqual({ view: "bot", botId: "bot_1" });
-    expect(parseRoute("bot_1/edit")).toEqual({ view: "edit", botId: "bot_1" });
-    expect(parseRoute("bot_1/new")).toEqual({
+    expect(parseRoute("persona_1")).toEqual({ view: "persona", personaId: "persona_1" });
+    expect(parseRoute("persona_1/edit")).toEqual({ view: "edit", personaId: "persona_1" });
+    expect(parseRoute("persona_1/new")).toEqual({
       view: "newChat",
-      botId: "bot_1",
+      personaId: "persona_1",
     });
-    expect(parseRoute("bot_1/thr_9")).toEqual({
+    expect(parseRoute("persona_1/thr_9")).toEqual({
       view: "chat",
-      botId: "bot_1",
+      personaId: "persona_1",
       threadId: "thr_9",
     });
   });
 
   it("tolerates stray slashes", () => {
     expect(parseRoute("/")).toEqual({ view: "list" });
-    expect(parseRoute("/bot_1/")).toEqual({ view: "bot", botId: "bot_1" });
+    expect(parseRoute("/persona_1/")).toEqual({ view: "persona", personaId: "persona_1" });
   });
 
   it("round-trips through routeToSubPath", () => {
     for (const subPath of [
       "",
       "new",
-      "bot_1",
-      "bot_1/edit",
-      "bot_1/new",
-      "bot_1/thr_9",
+      "persona_1",
+      "persona_1/edit",
+      "persona_1/new",
+      "persona_1/thr_9",
     ]) {
       expect(routeToSubPath(parseRoute(subPath))).toBe(subPath);
     }
@@ -73,52 +73,52 @@ describe("parseRoute", () => {
 
 describe("draftBlockers", () => {
   it("returns [] when name, provider, and model are all present", () => {
-    expect(draftBlockers(bot)).toEqual([]);
+    expect(draftBlockers(persona)).toEqual([]);
   });
 
   it("reports a missing name", () => {
-    expect(draftBlockers({ ...bot, name: "  " })).toEqual(["a name"]);
+    expect(draftBlockers({ ...persona, name: "  " })).toEqual(["a name"]);
   });
 
   it("reports a missing provider", () => {
-    expect(draftBlockers({ ...bot, providerId: "" })).toEqual(["a provider"]);
+    expect(draftBlockers({ ...persona, providerId: "" })).toEqual(["a provider"]);
   });
 
   it("reports a missing model", () => {
-    expect(draftBlockers({ ...bot, model: "" })).toEqual(["a model"]);
+    expect(draftBlockers({ ...persona, model: "" })).toEqual(["a model"]);
   });
 
   it("reports every missing field, in name/provider/model order", () => {
     expect(
-      draftBlockers({ ...bot, name: "", providerId: "", model: "" }),
+      draftBlockers({ ...persona, name: "", providerId: "", model: "" }),
     ).toEqual(["a name", "a provider", "a model"]);
   });
 });
 
 describe("displayName", () => {
   it("returns the trimmed name when set", () => {
-    expect(displayName(bot)).toBe("Pirate");
+    expect(displayName(persona)).toBe("Pirate");
   });
 
   it("falls back to a placeholder for a blank name", () => {
-    expect(displayName({ ...bot, name: "" })).toBe("Untitled bot");
+    expect(displayName({ ...persona, name: "" })).toBe("Untitled persona");
   });
 
   it("falls back to a placeholder for a whitespace-only name", () => {
-    expect(displayName({ ...bot, name: "   " })).toBe("Untitled bot");
+    expect(displayName({ ...persona, name: "   " })).toBe("Untitled persona");
   });
 });
 
-describe("renderBotInstructions", () => {
+describe("renderPersonaInstructions", () => {
   it("includes the name and the raw instructions", () => {
-    const rendered = renderBotInstructions(bot);
+    const rendered = renderPersonaInstructions(persona);
     expect(rendered).toContain("Pirate");
     expect(rendered).toContain("Always answer in pirate speak.");
   });
 
   it("stays under BB's instruction limit at maximum length", () => {
-    const rendered = renderBotInstructions({
-      ...bot,
+    const rendered = renderPersonaInstructions({
+      ...persona,
       name: "x".repeat(60),
       instructions: "y".repeat(MAX_INSTRUCTIONS),
     });
@@ -340,9 +340,9 @@ describe("emojiPickerHint", () => {
   });
 });
 
-describe("rowToBot", () => {
-  const row: BotRow = {
-    id: "bot_1",
+describe("rowToPersona", () => {
+  const row: PersonaRow = {
+    id: "persona_1",
     name: "Pirate",
     emoji: "🏴‍☠️",
     instructions: "Always answer in pirate speak.",
@@ -357,11 +357,11 @@ describe("rowToBot", () => {
 
   it("keeps a reasoning level that is in the union", () => {
     expect(REASONING_LEVELS).toContain("medium");
-    expect(rowToBot(row).reasoningLevel).toBe("medium");
+    expect(rowToPersona(row).reasoningLevel).toBe("medium");
   });
 
   it("reads an out-of-union stored reasoning level as unset", () => {
     expect(REASONING_LEVELS).not.toContain("turbo");
-    expect(rowToBot({ ...row, reasoning_level: "turbo" }).reasoningLevel).toBeNull();
+    expect(rowToPersona({ ...row, reasoning_level: "turbo" }).reasoningLevel).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { tintFor } from "@/bots";
+import { tintFor } from "@/personas";
 
 const SIZES = {
   sm: "size-8 text-base",
@@ -7,13 +7,13 @@ const SIZES = {
   lg: "size-12 text-2xl",
 } as const;
 
-export function BotAvatar({
-  botId,
+export function PersonaAvatar({
+  personaId,
   emoji,
   size = "md",
   className,
 }: {
-  botId: string;
+  personaId: string;
   emoji: string;
   size?: keyof typeof SIZES;
   className?: string;
@@ -24,7 +24,7 @@ export function BotAvatar({
       className={cn(
         "flex shrink-0 items-center justify-center rounded-lg",
         SIZES[size],
-        tintFor(botId),
+        tintFor(personaId),
         className,
       )}
     >

@@ -21,9 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { BotAvatar } from "@/components/BotAvatar";
+import { PersonaAvatar } from "@/components/PersonaAvatar";
 import { EmojiPicker } from "@/components/EmojiPicker";
-import { useBotsRpc, useQuery } from "@/components/use-query";
+import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import {
   displayName,
@@ -31,16 +31,16 @@ import {
   MAX_INSTRUCTIONS,
   MAX_NAME,
   pickEmoji,
-  type Bot,
+  type Persona,
   type ReasoningLevel,
-} from "@/bots";
+} from "@/personas";
 
 const NO_PROJECT = "__none__";
 
 /** How long a run of edits sits idle before autosave sends it. */
 const AUTOSAVE_DELAY_MS = 600;
 
-/** The subset of `Bot` this form edits, in the shape autosave diffs against. */
+/** The subset of `Persona` this form edits, in the shape autosave diffs against. */
 interface DraftFields {
   name: string;
   emoji: string;
@@ -51,7 +51,7 @@ interface DraftFields {
   projectId: string; // NO_PROJECT sentinel or a real project id
 }
 
-type BotPatch = Partial<{
+type PersonaPatch = Partial<{
   name: string;
   emoji: string;
   instructions: string;
@@ -65,8 +65,8 @@ type BotPatch = Partial<{
 function diffDraft(
   base: DraftFields,
   current: DraftFields,
-): { patch: BotPatch; nextBase: DraftFields } | null {
-  const patch: BotPatch = {};
+): { patch: PersonaPatch; nextBase: DraftFields } | null {
+  const patch: PersonaPatch = {};
   const nextBase = { ...base };
   const trimmedName = current.name.trim();
   if (trimmedName !== base.name) {
@@ -101,15 +101,15 @@ function diffDraft(
   return { patch, nextBase };
 }
 
-export function BotEditor({ botId }: { botId: string }) {
-  const rpc = useBotsRpc();
+export function PersonaEditor({ personaId }: { personaId: string }) {
+  const rpc = usePersonasRpc();
   const navigate = useBbNavigate();
 
   // One round trip for everything the form needs, so the pickers and the
   // existing values arrive together instead of in a waterfall.
   const { data, error } = useQuery(
-    () => Promise.all([rpc.call("listOptions"), rpc.call("getBot", { botId })]),
-    `editor:${botId}`,
+    () => Promise.all([rpc.call("listOptions"), rpc.call("getPersona", { personaId })]),
+    `editor:${personaId}`,
   );
 
   const [name, setName] = useState("");
@@ -127,7 +127,7 @@ export function BotEditor({ botId }: { botId: string }) {
   );
 
   const options = data?.[0] ?? null;
-  const bot = data?.[1].bot ?? null;
+  const persona = data?.[1].persona ?? null;
 
   // The baseline autosave diffs new edits against — the fields the server
   // actually has. Deliberately separate from form state: seeding a fresh
@@ -176,7 +176,7 @@ export function BotEditor({ botId }: { botId: string }) {
     if (diff === null) return;
     if (mountedRef.current) setSaveStatus("saving");
     const attempt = rpc
-      .call("saveBot", { botId, patch: diff.patch })
+      .call("savePersona", { personaId, patch: diff.patch })
       .then(() => {
         savedRef.current = diff.nextBase;
         if (mountedRef.current) setSaveStatus("saved");
@@ -201,35 +201,35 @@ export function BotEditor({ botId }: { botId: string }) {
   }
 
   // Seed once from the loaded record, then leave the form uncontrolled. The
-  // row always exists by the time this mounts, so there is no "new bot"
+  // row always exists by the time this mounts, so there is no "new persona"
   // branch here anymore — only a draft row with possibly-empty fields.
   useEffect(() => {
-    if (options === null || bot === null || isSeeded) return;
+    if (options === null || persona === null || isSeeded) return;
     const seededProviderId =
-      bot.providerId !== ""
-        ? bot.providerId
+      persona.providerId !== ""
+        ? persona.providerId
         : (options.providers.find((provider) => provider.available) ??
             options.providers[0])?.id ?? "";
-    setName(bot.name);
-    setEmoji(bot.emoji);
-    setInstructions(bot.instructions);
+    setName(persona.name);
+    setEmoji(persona.emoji);
+    setInstructions(persona.instructions);
     setProviderId(seededProviderId);
-    setModel(bot.model);
-    setReasoningLevel(bot.reasoningLevel);
-    setProjectId(bot.projectId ?? NO_PROJECT);
+    setModel(persona.model);
+    setReasoningLevel(persona.reasoningLevel);
+    setProjectId(persona.projectId ?? NO_PROJECT);
     // The real baseline: what the server has, not the provider fallback
     // above. That fallback still needs to autosave once seeding lands.
     savedRef.current = {
-      name: bot.name,
-      emoji: bot.emoji,
-      instructions: bot.instructions,
-      providerId: bot.providerId,
-      model: bot.model,
-      reasoningLevel: bot.reasoningLevel,
-      projectId: bot.projectId ?? NO_PROJECT,
+      name: persona.name,
+      emoji: persona.emoji,
+      instructions: persona.instructions,
+      providerId: persona.providerId,
+      model: persona.model,
+      reasoningLevel: persona.reasoningLevel,
+      projectId: persona.projectId ?? NO_PROJECT,
     };
     setIsSeeded(true);
-  }, [options, bot, isSeeded]);
+  }, [options, persona, isSeeded]);
 
   const models = useQuery(
     () =>
@@ -295,17 +295,17 @@ export function BotEditor({ botId }: { botId: string }) {
   if (options === null) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
-  if (bot === null) {
-    return <p className="text-sm text-muted-foreground">This bot was deleted.</p>;
+  if (persona === null) {
+    return <p className="text-sm text-muted-foreground">This persona was deleted.</p>;
   }
 
   const selectedModel = available.find((candidate) => candidate.id === model);
-  const isDraft = bot.status === "draft";
+  const isDraft = persona.status === "draft";
 
   // Blockers reflect what's on screen right now, not the last save that
   // landed — otherwise Publish would only enable after a round trip.
-  const currentBot: Bot = {
-    ...bot,
+  const currentPersona: Persona = {
+    ...persona,
     name: name.trim(),
     emoji,
     instructions,
@@ -314,7 +314,7 @@ export function BotEditor({ botId }: { botId: string }) {
     reasoningLevel,
     projectId: projectId === NO_PROJECT ? null : projectId,
   };
-  const blockers = isDraft ? draftBlockers(currentBot) : [];
+  const blockers = isDraft ? draftBlockers(currentPersona) : [];
   const nameBlocked = isDraft && blockers.includes("a name");
   const modelBlocked = isDraft && blockers.includes("a model");
 
@@ -323,9 +323,9 @@ export function BotEditor({ botId }: { botId: string }) {
     try {
       flushPendingSave();
       await runSave();
-      await rpc.call("publishBot", { botId });
-      toast.success("Bot published");
-      navigate.toPluginPanel(PANEL_PATH, { subPath: botId, replace: true });
+      await rpc.call("publishPersona", { personaId });
+      toast.success("Persona published");
+      navigate.toPluginPanel(PANEL_PATH, { subPath: personaId, replace: true });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -336,7 +336,7 @@ export function BotEditor({ botId }: { botId: string }) {
   async function removeDraft() {
     setIsBusy(true);
     try {
-      await rpc.call("deleteBot", { botId });
+      await rpc.call("deletePersona", { personaId });
       navigate.toPluginPanel(PANEL_PATH, { subPath: "", replace: true });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
@@ -349,7 +349,7 @@ export function BotEditor({ botId }: { botId: string }) {
     try {
       flushPendingSave();
       await runSave();
-      navigate.toPluginPanel(PANEL_PATH, { subPath: botId, replace: true });
+      navigate.toPluginPanel(PANEL_PATH, { subPath: personaId, replace: true });
     } finally {
       setIsBusy(false);
     }
@@ -358,7 +358,7 @@ export function BotEditor({ botId }: { botId: string }) {
   return (
     <div className="space-y-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-medium">{isDraft ? "Set up bot" : "Edit bot"}</h2>
+        <h2 className="text-sm font-medium">{isDraft ? "Set up persona" : "Edit persona"}</h2>
         <span className="text-xs text-muted-foreground">
           {saveStatus === "saving"
             ? "Saving…"
@@ -372,7 +372,7 @@ export function BotEditor({ botId }: { botId: string }) {
 
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <Label htmlFor="bot-name">Name</Label>
+          <Label htmlFor="persona-name">Name</Label>
           {nameBlocked ? <span className="text-xs text-destructive">Required</span> : null}
         </div>
         <div className="flex items-center gap-2">
@@ -382,7 +382,7 @@ export function BotEditor({ botId }: { botId: string }) {
               aria-label="Change icon"
               className="cursor-pointer rounded-lg hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              <BotAvatar botId={bot.id} emoji={emoji} />
+              <PersonaAvatar personaId={persona.id} emoji={emoji} />
             </button>
           </EmojiPicker>
           <Button
@@ -394,7 +394,7 @@ export function BotEditor({ botId }: { botId: string }) {
             Shuffle icon
           </Button>
           <Input
-            id="bot-name"
+            id="persona-name"
             value={name}
             maxLength={MAX_NAME}
             placeholder="Pirate"
@@ -405,13 +405,13 @@ export function BotEditor({ botId }: { botId: string }) {
 
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <Label htmlFor="bot-instructions">Instructions</Label>
+          <Label htmlFor="persona-instructions">Instructions</Label>
           <span className="text-xs text-muted-foreground">
             {instructions.length} / {MAX_INSTRUCTIONS}
           </span>
         </div>
         <Textarea
-          id="bot-instructions"
+          id="persona-instructions"
           value={instructions}
           rows={10}
           maxLength={MAX_INSTRUCTIONS}
@@ -419,15 +419,15 @@ export function BotEditor({ botId }: { botId: string }) {
           onChange={(event) => setInstructions(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Injected into every turn of this bot&apos;s chats.
+          Injected into every turn of this persona&apos;s chats.
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="bot-provider">Provider</Label>
+          <Label htmlFor="persona-provider">Provider</Label>
           <Select value={providerId} onValueChange={setProviderId}>
-            <SelectTrigger id="bot-provider">
+            <SelectTrigger id="persona-provider">
               <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
@@ -447,13 +447,13 @@ export function BotEditor({ botId }: { botId: string }) {
 
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
-            <Label htmlFor="bot-model">Model</Label>
+            <Label htmlFor="persona-model">Model</Label>
             {modelBlocked ? (
               <span className="text-xs text-destructive">Required</span>
             ) : null}
           </div>
           <Select value={model} onValueChange={setModel}>
-            <SelectTrigger id="bot-model">
+            <SelectTrigger id="persona-model">
               <SelectValue placeholder="Select a model" />
             </SelectTrigger>
             <SelectContent>
@@ -467,12 +467,12 @@ export function BotEditor({ botId }: { botId: string }) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bot-reasoning">Reasoning</Label>
+          <Label htmlFor="persona-reasoning">Reasoning</Label>
           <Select
             value={reasoningLevel ?? ""}
             onValueChange={(next) => setReasoningLevel(next as ReasoningLevel)}
           >
-            <SelectTrigger id="bot-reasoning">
+            <SelectTrigger id="persona-reasoning">
               <SelectValue placeholder="Default" />
             </SelectTrigger>
             <SelectContent>
@@ -486,9 +486,9 @@ export function BotEditor({ botId }: { botId: string }) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bot-project">Project</Label>
+          <Label htmlFor="persona-project">Project</Label>
           <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger id="bot-project">
+            <SelectTrigger id="persona-project">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -510,7 +510,7 @@ export function BotEditor({ botId }: { botId: string }) {
               title={blockers.length > 0 ? `Missing: ${blockers.join(", ")}` : undefined}
             >
               <Button disabled={blockers.length > 0 || isBusy} onClick={() => void publish()}>
-                Publish bot
+                Publish persona
               </Button>
             </span>
             <Button
@@ -526,7 +526,7 @@ export function BotEditor({ botId }: { botId: string }) {
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Delete {displayName(currentBot)}?</DialogTitle>
+                  <DialogTitle>Delete {displayName(currentPersona)}?</DialogTitle>
                   <DialogDescription>
                     This draft was never published, so nothing else changes.
                   </DialogDescription>
