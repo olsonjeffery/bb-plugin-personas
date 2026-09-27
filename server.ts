@@ -1,21 +1,26 @@
 // bb-plugin-personas — backend entry.
 //
-// A "persona" is a name, an emoji, a block of instructions, and a model. Chatting
+// A "persona" is a name, an emoji, a pool of prompts, and a model. Chatting
 // with one spawns an ordinary BB thread; bb.agents.contributeInstructions then
-// injects that persona's instructions into every turn of that thread.
+// injects that persona's joined prompt pool into every turn of that thread.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
-  clampInstructions,
+  clampPromptText,
   draftBlockers,
-  MAX_INSTRUCTIONS,
+  hasPromptConflict,
   MAX_NAME,
+  MAX_PROMPT_TEXT,
   newPersonaId,
+  newPromptId,
   pickEmoji,
   renderPersonaInstructions,
   rowToPersona,
+  rowToPrompt,
   sortChats,
   type Persona,
+  type PersonaPrompt,
+  type PersonaPromptRow,
   type PersonaRow,
 } from "./personas.js";
 import { pluginHealth } from "./plugin-health.js";
@@ -31,11 +36,22 @@ const ReasoningLevel = z.enum([
   "ultracode",
 ]);
 
+const PersonaPromptSchema = z.object({
+  id: z.string(),
+  personaId: z.string(),
+  // "text" is the only prompt type so far; the union grows with new types.
+  type: z.literal("text"),
+  text: z.string(),
+  position: z.number().int(),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+});
+
 const PersonaSchema = z.object({
   id: z.string(),
   name: z.string(),
   emoji: z.string(),
-  instructions: z.string(),
+  prompts: z.array(PersonaPromptSchema),
   providerId: z.string(),
   model: z.string(),
   reasoningLevel: ReasoningLevel.nullable(),
@@ -52,7 +68,6 @@ const PersonaPatchSchema = z
   .object({
     name: z.string().max(MAX_NAME),
     emoji: z.string().min(1).max(16),
-    instructions: z.string().max(MAX_INSTRUCTIONS),
     providerId: z.string(),
     model: z.string(),
     reasoningLevel: ReasoningLevel.nullable(),
@@ -149,6 +164,36 @@ export const rpcContract = defineRpcContract({
   },
   savePersona: {
     input: z.object({ personaId: z.string(), patch: PersonaPatchSchema }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
+  // Adds one prompt to a persona's pool. The text must not share its first
+  // 24 characters with another prompt in the same persona's pool.
+  addPersonaPrompt: {
+    input: z
+      .object({
+        personaId: z.string(),
+        type: z.literal("text"),
+        text: z.string().min(1).max(MAX_PROMPT_TEXT),
+      })
+      .strict(),
+    output: z.object({ prompt: PersonaPromptSchema }),
+  },
+  // Rewrites one prompt's text. The 24-character uniqueness rule is checked
+  // against the persona's other prompts — a prompt may keep its own text.
+  updatePersonaPrompt: {
+    input: z
+      .object({
+        personaId: z.string(),
+        promptId: z.string(),
+        text: z.string().min(1).max(MAX_PROMPT_TEXT),
+      })
+      .strict(),
+    output: z.object({ prompt: PersonaPromptSchema }),
+  },
+  removePersonaPrompt: {
+    input: z
+      .object({ personaId: z.string(), promptId: z.string() })
+      .strict(),
     output: z.object({ ok: z.boolean() }),
   },
   publishPersona: {
@@ -262,6 +307,16 @@ export default async function plugin(bb: BbPluginApi) {
     // The DEFAULT backfills every existing row as published, so there's no
     // separate backfill statement or code path.
     `ALTER TABLE personas ADD COLUMN status TEXT NOT NULL DEFAULT 'published'`,
+    `CREATE TABLE IF NOT EXISTS persona_prompts (
+       id         TEXT PRIMARY KEY,
+       persona_id TEXT NOT NULL,
+       type       TEXT NOT NULL DEFAULT 'text',
+       text       TEXT NOT NULL,
+       position   INTEGER NOT NULL,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     )`,
+    `CREATE INDEX IF NOT EXISTS persona_prompts_persona_id ON persona_prompts(persona_id)`,
   ]);
 
   // One-time carry-over from the pre-rename schema (tables `bots` and
@@ -298,14 +353,54 @@ export default async function plugin(bb: BbPluginApi) {
     db.prepare("DROP TABLE bot_threads").run();
   }
 
+  // One-time carry-over from the pre-pool schema: each persona's single
+  // `instructions` column becomes its first text prompt. Runs after the
+  // bots carry-over so legacy bot instructions arrive too. Idempotent — a
+  // persona that already owns any prompt row is skipped — and it leaves the
+  // old column in place (vestigial, never written again) because SQLite
+  // makes dropping columns more trouble than ignoring one.
+  const legacyInstructionRows = db
+    .prepare(
+      `SELECT id, instructions, updated_at FROM personas
+        WHERE instructions != ''
+          AND id NOT IN (SELECT persona_id FROM persona_prompts)`,
+    )
+    .all() as { id: string; instructions: string; updated_at: number }[];
+  for (const row of legacyInstructionRows) {
+    db.prepare(
+      `INSERT INTO persona_prompts (id, persona_id, type, text, position,
+                                   created_at, updated_at)
+       VALUES (?, ?, 'text', ?, 0, ?, ?)`,
+    ).run(newPromptId(), row.id, row.instructions, row.updated_at, row.updated_at);
+  }
+
   // contributeInstructions is synchronous and sits on the thread-start path,
   // so SQLite is the durable store and these maps are the read path. A BB
   // plugin is one in-process module, so caching here is safe.
   const personasById = new Map<string, Persona>();
   const personaIdByThreadId = new Map<string, string>();
+  // personaId -> that persona's prompt pool. The array stored here is the
+  // same array the Persona object holds (rowToPersona assigns by reference),
+  // so prompt RPCs mutate one list and every reader sees the change.
+  const promptsByPersonaId = new Map<string, PersonaPrompt[]>();
 
+  /** The persona's live pool, created on first touch so RPCs can mutate it. */
+  function promptsFor(personaId: string): PersonaPrompt[] {
+    let prompts = promptsByPersonaId.get(personaId);
+    if (prompts === undefined) {
+      prompts = [];
+      promptsByPersonaId.set(personaId, prompts);
+    }
+    return prompts;
+  }
+
+  for (const row of db
+    .prepare("SELECT * FROM persona_prompts ORDER BY persona_id, position, created_at")
+    .all() as PersonaPromptRow[]) {
+    promptsFor(row.persona_id).push(rowToPrompt(row));
+  }
   for (const row of db.prepare("SELECT * FROM personas").all() as PersonaRow[]) {
-    personasById.set(row.id, rowToPersona(row));
+    personasById.set(row.id, rowToPersona(row, promptsFor(row.id)));
   }
   for (const row of db
     .prepare("SELECT thread_id, persona_id FROM persona_threads")
@@ -332,6 +427,15 @@ export default async function plugin(bb: BbPluginApi) {
     return persona;
   }
 
+  /** Pool writes count as persona activity: bump updated_at in memory and on disk. */
+  function touchPersona(persona: Persona, now: number): void {
+    persona.updatedAt = now;
+    db.prepare("UPDATE personas SET updated_at = ? WHERE id = ?").run(
+      now,
+      persona.id,
+    );
+  }
+
   function announce() {
     bb.realtime.publish("personas", { changedAt: Date.now() });
   }
@@ -348,11 +452,14 @@ export default async function plugin(bb: BbPluginApi) {
     // provider/model/name itself via savePersona right after.
     createPersona: () => {
       const now = Date.now();
+      const id = newPersonaId();
+      // promptsFor registers the pool before the persona exists so the array
+      // the persona holds is the same one the prompt RPCs mutate.
       const persona: Persona = {
-        id: newPersonaId(),
+        id,
         name: "",
         emoji: pickEmoji(),
-        instructions: "",
+        prompts: promptsFor(id),
         providerId: "",
         model: "",
         reasoningLevel: null,
@@ -364,12 +471,11 @@ export default async function plugin(bb: BbPluginApi) {
       db.prepare(
         `INSERT INTO personas (id, name, emoji, instructions, provider_id, model,
                            reasoning_level, project_id, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         persona.id,
         persona.name,
         persona.emoji,
-        persona.instructions,
         persona.providerId,
         persona.model,
         persona.reasoningLevel,
@@ -392,9 +498,6 @@ export default async function plugin(bb: BbPluginApi) {
         ...existing,
         ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
         ...(patch.emoji !== undefined ? { emoji: patch.emoji } : {}),
-        ...(patch.instructions !== undefined
-          ? { instructions: clampInstructions(patch.instructions) }
-          : {}),
         ...(patch.providerId !== undefined
           ? { providerId: patch.providerId }
           : {}),
@@ -409,13 +512,12 @@ export default async function plugin(bb: BbPluginApi) {
       };
       db.prepare(
         `UPDATE personas
-            SET name = ?, emoji = ?, instructions = ?, provider_id = ?,
+            SET name = ?, emoji = ?, provider_id = ?,
                 model = ?, reasoning_level = ?, project_id = ?, updated_at = ?
           WHERE id = ?`,
       ).run(
         persona.name,
         persona.emoji,
-        persona.instructions,
         persona.providerId,
         persona.model,
         persona.reasoningLevel,
@@ -424,6 +526,90 @@ export default async function plugin(bb: BbPluginApi) {
         persona.id,
       );
       personasById.set(persona.id, persona);
+      announce();
+      return { ok: true };
+    },
+
+    // Prompt-pool writes. Every mutation re-checks the 24-character
+    // uniqueness rule server-side: the UI pre-checks locally, but the server
+    // is the authority a second window or a stale tab answers to.
+    addPersonaPrompt: ({ personaId, text }) => {
+      const persona = readPersona(personaId);
+      const prompts = promptsFor(personaId);
+      const clamped = clampPromptText(text);
+      if (clamped.length === 0) {
+        throw new Error("A prompt needs some text");
+      }
+      if (hasPromptConflict(prompts.map((prompt) => prompt.text), clamped)) {
+        throw new Error(
+          "This persona already has a prompt with the same first 24 characters",
+        );
+      }
+      const now = Date.now();
+      const prompt: PersonaPrompt = {
+        id: newPromptId(),
+        personaId,
+        type: "text",
+        text: clamped,
+        position: prompts.reduce((max, entry) => Math.max(max, entry.position), -1) + 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      db.prepare(
+        `INSERT INTO persona_prompts (id, persona_id, type, text, position,
+                                  created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        prompt.id,
+        prompt.personaId,
+        prompt.type,
+        prompt.text,
+        prompt.position,
+        prompt.createdAt,
+        prompt.updatedAt,
+      );
+      prompts.push(prompt);
+      touchPersona(persona, now);
+      announce();
+      return { prompt };
+    },
+
+    updatePersonaPrompt: ({ personaId, promptId, text }) => {
+      const persona = readPersona(personaId);
+      const prompts = promptsFor(personaId);
+      const prompt = prompts.find((entry) => entry.id === promptId);
+      if (prompt === undefined) throw new Error(`Unknown prompt: ${promptId}`);
+      const clamped = clampPromptText(text);
+      if (clamped.length === 0) {
+        throw new Error("A prompt needs some text");
+      }
+      const siblings = prompts
+        .filter((entry) => entry.id !== promptId)
+        .map((entry) => entry.text);
+      if (hasPromptConflict(siblings, clamped)) {
+        throw new Error(
+          "This persona already has a prompt with the same first 24 characters",
+        );
+      }
+      const now = Date.now();
+      prompt.text = clamped;
+      prompt.updatedAt = now;
+      db.prepare(
+        "UPDATE persona_prompts SET text = ?, updated_at = ? WHERE id = ?",
+      ).run(clamped, now, promptId);
+      touchPersona(persona, now);
+      announce();
+      return { prompt };
+    },
+
+    removePersonaPrompt: ({ personaId, promptId }) => {
+      const persona = readPersona(personaId);
+      const prompts = promptsFor(personaId);
+      const index = prompts.findIndex((entry) => entry.id === promptId);
+      if (index === -1) throw new Error(`Unknown prompt: ${promptId}`);
+      prompts.splice(index, 1);
+      db.prepare("DELETE FROM persona_prompts WHERE id = ?").run(promptId);
+      touchPersona(persona, Date.now());
       announce();
       return { ok: true };
     },
@@ -452,12 +638,15 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true };
     },
 
-    // Deletes the persona and its thread mappings. The threads themselves are real
-    // conversations, so they stay — they just stop receiving the persona.
+    // Deletes the persona, its prompt pool, and its thread mappings. The
+    // threads themselves are real conversations, so they stay — they just
+    // stop receiving the persona.
     deletePersona: ({ personaId }) => {
+      db.prepare("DELETE FROM persona_prompts WHERE persona_id = ?").run(personaId);
       db.prepare("DELETE FROM persona_threads WHERE persona_id = ?").run(personaId);
       db.prepare("DELETE FROM personas WHERE id = ?").run(personaId);
       personasById.delete(personaId);
+      promptsByPersonaId.delete(personaId);
       for (const [threadId, mapped] of personaIdByThreadId) {
         if (mapped === personaId) personaIdByThreadId.delete(threadId);
       }

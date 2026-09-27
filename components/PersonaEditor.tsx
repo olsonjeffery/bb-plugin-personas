@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogClose,
@@ -28,7 +27,6 @@ import { PANEL_PATH } from "@/components/panel-path";
 import {
   displayName,
   draftBlockers,
-  MAX_INSTRUCTIONS,
   MAX_NAME,
   pickEmoji,
   type Persona,
@@ -44,7 +42,6 @@ const AUTOSAVE_DELAY_MS = 600;
 interface DraftFields {
   name: string;
   emoji: string;
-  instructions: string;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -54,7 +51,6 @@ interface DraftFields {
 type PersonaPatch = Partial<{
   name: string;
   emoji: string;
-  instructions: string;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -76,10 +72,6 @@ function diffDraft(
   if (current.emoji !== base.emoji) {
     patch.emoji = current.emoji;
     nextBase.emoji = current.emoji;
-  }
-  if (current.instructions !== base.instructions) {
-    patch.instructions = current.instructions;
-    nextBase.instructions = current.instructions;
   }
   if (current.providerId !== base.providerId) {
     patch.providerId = current.providerId;
@@ -114,7 +106,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
 
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState(pickEmoji);
-  const [instructions, setInstructions] = useState("");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel | null>(null);
@@ -137,7 +128,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const draftRef = useRef<DraftFields>({
     name,
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -146,7 +136,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   draftRef.current = {
     name,
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -212,7 +201,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
             options.providers[0])?.id ?? "";
     setName(persona.name);
     setEmoji(persona.emoji);
-    setInstructions(persona.instructions);
     setProviderId(seededProviderId);
     setModel(persona.model);
     setReasoningLevel(persona.reasoningLevel);
@@ -222,7 +210,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     savedRef.current = {
       name: persona.name,
       emoji: persona.emoji,
-      instructions: persona.instructions,
       providerId: persona.providerId,
       model: persona.model,
       reasoningLevel: persona.reasoningLevel,
@@ -275,7 +262,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSeeded, name, emoji, instructions, providerId, model, reasoningLevel, projectId]);
+  }, [isSeeded, name, emoji, providerId, model, reasoningLevel, projectId]);
 
   // A user hitting Cmd-W (or Alt-Tab, etc.) moments after typing must not
   // lose that keystroke, so flush on both unmount and window blur — blur
@@ -308,7 +295,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     ...persona,
     name: name.trim(),
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -401,26 +387,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
             onChange={(event) => setName(event.target.value)}
           />
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-baseline justify-between">
-          <Label htmlFor="persona-instructions">Instructions</Label>
-          <span className="text-xs text-muted-foreground">
-            {instructions.length} / {MAX_INSTRUCTIONS}
-          </span>
-        </div>
-        <Textarea
-          id="persona-instructions"
-          value={instructions}
-          rows={10}
-          maxLength={MAX_INSTRUCTIONS}
-          placeholder="Always answer in exaggerated pirate speak. Never break character."
-          onChange={(event) => setInstructions(event.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">
-          Injected into every turn of this persona&apos;s chats.
-        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

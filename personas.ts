@@ -61,7 +61,8 @@ export interface Persona {
   id: string;
   name: string;
   emoji: string;
-  instructions: string;
+  /** The persona's prompt pool; injected into every turn of its chats. */
+  prompts: PersonaPrompt[];
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -186,11 +187,7 @@ export function newPromptId(): string {
   return `prompt_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
-export function clampInstructions(instructions: string): string {
-  return instructions.trim().slice(0, MAX_INSTRUCTIONS);
-}
-
-/** Trims and length-bounds a prompt's text the way savePersona did for instructions. */
+/** Trims and length-bounds a prompt's text for storage and transport. */
 export function clampPromptText(text: string): string {
   return text.trim().slice(0, MAX_PROMPT_TEXT);
 }
@@ -234,10 +231,10 @@ export function joinedPromptText(prompts: readonly PersonaPrompt[]): string {
     .join("\n\n");
 }
 
-/** Single-line preview of a persona's instructions for list cards. */
+/** Single-line preview of a persona's prompt pool for list cards. */
 export function previewInstructions(instructions: string): string {
   const collapsed = instructions.replace(/\s+/g, " ").trim();
-  return collapsed.length > 0 ? collapsed : "No instructions yet.";
+  return collapsed.length > 0 ? collapsed : "No prompts yet.";
 }
 
 /** The editor autosaves drafts with a blank name, so list cards need a fallback. */
@@ -260,10 +257,12 @@ export function draftBlockers(persona: Persona): string[] {
 
 /**
  * The persona block BB injects into every turn of a persona's threads. Kept under
- * INSTRUCTION_LIMIT by construction: MAX_INSTRUCTIONS plus this wrapper.
+ * INSTRUCTION_LIMIT by construction for a single max-length prompt (a wrapper
+ * plus MAX_PROMPT_TEXT); a fuller pool is clamped to the wrapper's leftover
+ * budget, with an ellipsis marking the cut.
  */
 export function renderPersonaInstructions(persona: Persona): string {
-  return [
+  const header = [
     `# Custom persona: ${persona.name}`,
     "",
     `You are running as a custom persona named "${persona.name}" that the user built.`,
@@ -273,9 +272,13 @@ export function renderPersonaInstructions(persona: Persona): string {
     "with a specific request the user makes later, follow the later request.",
     "",
     "<persona-instructions>",
-    persona.instructions,
-    "</persona-instructions>",
   ].join("\n");
+  const footer = "</persona-instructions>";
+  // The wrapper's own characters leave this much room for prompt text.
+  const budget = INSTRUCTION_LIMIT - header.length - footer.length - 2;
+  const body = joinedPromptText(persona.prompts);
+  const clamped = body.length > budget ? `${body.slice(0, budget - 1)}…` : body;
+  return `${header}\n${clamped}\n${footer}`;
 }
 
 export type Route =
@@ -382,12 +385,17 @@ export function sortChats<T extends ChatSortable>(chats: readonly T[]): T[] {
   });
 }
 
-export function rowToPersona(row: PersonaRow): Persona {
+/**
+ * Assembles a Persona from its own row plus its prompt rows. `prompts` is
+ * assigned by reference (not copied) so the server's prompt pool map and the
+ * persona object can never drift apart.
+ */
+export function rowToPersona(row: PersonaRow, prompts: PersonaPrompt[]): Persona {
   return {
     id: row.id,
     name: row.name,
     emoji: row.emoji,
-    instructions: row.instructions,
+    prompts,
     providerId: row.provider_id,
     model: row.model,
     // Any unrecognised stored value reads as unset rather than flowing

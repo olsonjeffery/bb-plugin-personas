@@ -35,7 +35,17 @@ const persona: Persona = {
   id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
-  instructions: "Always answer in pirate speak.",
+  prompts: [
+    {
+      id: "prompt_1",
+      personaId: "persona_1",
+      type: "text",
+      text: "Always answer in pirate speak.",
+      position: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ],
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium",
@@ -120,19 +130,55 @@ describe("displayName", () => {
 });
 
 describe("renderPersonaInstructions", () => {
-  it("includes the name and the raw instructions", () => {
-    const rendered = renderPersonaInstructions(persona);
-    expect(rendered).toContain("Pirate");
-    expect(rendered).toContain("Always answer in pirate speak.");
+  const prompt = (text: string, position: number): PersonaPrompt => ({
+    id: `prompt_${position}`,
+    personaId: persona.id,
+    type: "text",
+    text,
+    position,
+    createdAt: 0,
+    updatedAt: 0,
   });
 
-  it("stays under BB's instruction limit at maximum length", () => {
+  it("includes the name and every prompt's text", () => {
+    const rendered = renderPersonaInstructions({
+      ...persona,
+      prompts: [prompt("Always answer in pirate speak.", 0), prompt("Never break character.", 1)],
+    });
+    expect(rendered).toContain("Pirate");
+    expect(rendered).toContain("Always answer in pirate speak.");
+    expect(rendered).toContain("Never break character.");
+  });
+
+  it("stays under BB's instruction limit at maximum single-prompt length", () => {
     const rendered = renderPersonaInstructions({
       ...persona,
       name: "x".repeat(60),
-      instructions: "y".repeat(MAX_INSTRUCTIONS),
+      prompts: [prompt("y".repeat(MAX_PROMPT_TEXT), 0)],
     });
     expect(rendered.length).toBeLessThanOrEqual(INSTRUCTION_LIMIT);
+  });
+
+  it("clamps a pool whose joined text exceeds BB's instruction limit", () => {
+    const rendered = renderPersonaInstructions({
+      ...persona,
+      prompts: [
+        prompt("y".repeat(MAX_PROMPT_TEXT), 0),
+        prompt(`${"z".repeat(MAX_PROMPT_TEXT - 12)}TAIL_MARKER`, 1),
+      ],
+    });
+    expect(rendered.length).toBeLessThanOrEqual(INSTRUCTION_LIMIT);
+    // The cut is marked, the wrapper closes cleanly after it, and the
+    // second prompt's tail — past the budget — never makes it in.
+    expect(rendered).toContain("…");
+    expect(rendered.endsWith("</persona-instructions>")).toBe(true);
+    expect(rendered).not.toContain("TAIL_MARKER");
+  });
+
+  it("renders the wrapper with an empty pool rather than nothing at all", () => {
+    const rendered = renderPersonaInstructions({ ...persona, prompts: [] });
+    expect(rendered).toContain("Pirate");
+    expect(rendered).toContain("<persona-instructions>\n\n</persona-instructions>");
   });
 });
 
@@ -150,11 +196,11 @@ describe("previewInstructions", () => {
   });
 
   it("returns the fallback for an empty string", () => {
-    expect(previewInstructions("")).toBe("No instructions yet.");
+    expect(previewInstructions("")).toBe("No prompts yet.");
   });
 
   it("returns the fallback for a whitespace-only string", () => {
-    expect(previewInstructions("   \n\t  ")).toBe("No instructions yet.");
+    expect(previewInstructions("   \n\t  ")).toBe("No prompts yet.");
   });
 
   it("collapses a markdown heading followed by blank lines", () => {
@@ -367,12 +413,17 @@ describe("rowToPersona", () => {
 
   it("keeps a reasoning level that is in the union", () => {
     expect(REASONING_LEVELS).toContain("medium");
-    expect(rowToPersona(row).reasoningLevel).toBe("medium");
+    expect(rowToPersona(row, []).reasoningLevel).toBe("medium");
   });
 
   it("reads an out-of-union stored reasoning level as unset", () => {
     expect(REASONING_LEVELS).not.toContain("turbo");
-    expect(rowToPersona({ ...row, reasoning_level: "turbo" }).reasoningLevel).toBeNull();
+    expect(rowToPersona({ ...row, reasoning_level: "turbo" }, []).reasoningLevel).toBeNull();
+  });
+
+  it("assigns the given prompt pool by reference so pool writes reach the persona", () => {
+    const prompts: PersonaPrompt[] = [];
+    expect(rowToPersona(row, prompts).prompts).toBe(prompts);
   });
 });
 
