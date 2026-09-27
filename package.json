@@ -10,7 +10,10 @@
     "name": "Personas",
     "description": "Create custom personas with their own instructions and model, then chat with them.",
     "branding": {
-      "icon": "./assets/icon.svg"
+      "icon": "./assets/icon.svg",
+      "experimental_icons": {
+        "speaking": "./assets/icons/speaking.svg"
+      }
     },
     "server": "./server.ts",
     "app": "./app.tsx"
