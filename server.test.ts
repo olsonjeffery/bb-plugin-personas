@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
+import type { PluginHealthReport } from "./plugin-health.js";
 
 const PROJECTS = [
   { id: "proj_personal", name: "Personal", kind: "personal", sources: [] },
@@ -13,6 +14,26 @@ function makeHost() {
     pluginId: "personas",
     sdk: {
       projects: { list: async () => PROJECTS },
+      plugins: {
+        // One running Floating Notes by default, so tests that don't care
+        // about health see the happy path; health tests stub their own state.
+        list: async () => ({
+          plugins: [
+            {
+              id: "personas",
+              enabled: true,
+              status: "running",
+              version: "1.2.0",
+            },
+            {
+              id: "floating-notes",
+              enabled: true,
+              status: "running",
+              version: "1.2.1",
+            },
+          ],
+        }),
+      },
       providers: {
         list: async () => [
           { id: "codex", displayName: "Codex", available: true },
@@ -622,5 +643,108 @@ describe("listOptions", () => {
       null,
     )) as { personalProjectId: string | null };
     expect(personalProjectId).toBe("proj_personal");
+  });
+});
+
+describe("getPluginHealth", () => {
+  it("reports Floating Notes available when it is installed, enabled, and running", async () => {
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+
+    expect(health.floatingNotesAvailable).toBe(true);
+    expect(health.tools).toEqual([
+      {
+        id: "floating-notes",
+        label: "Floating Notes",
+        installed: true,
+        enabled: true,
+        status: "running",
+        version: "1.2.1",
+        // No install link once the plugin is present.
+        installUrl: null,
+        available: true,
+      },
+    ]);
+  });
+
+  it("reports Floating Notes missing with its plugin page link when it is not installed", async () => {
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({
+        plugins: [
+          { id: "personas", enabled: true, status: "running", version: "1.2.0" },
+        ],
+      })) as never,
+    );
+
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+
+    expect(health.floatingNotesAvailable).toBe(false);
+    expect(health.tools).toEqual([
+      {
+        id: "floating-notes",
+        label: "Floating Notes",
+        installed: false,
+        enabled: false,
+        status: null,
+        version: null,
+        installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
+        available: false,
+      },
+    ]);
+  });
+
+  it("reports Floating Notes unavailable when it is installed but disabled", async () => {
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({
+        plugins: [
+          { id: "personas", enabled: true, status: "running", version: "1.2.0" },
+          {
+            id: "floating-notes",
+            enabled: false,
+            status: "disabled",
+            version: "1.2.1",
+          },
+        ],
+      })) as never,
+    );
+
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+
+    // Installed, so no install link — but the flag must stay false so
+    // nothing gates a feature on a disabled plugin.
+    expect(health.floatingNotesAvailable).toBe(false);
+    expect(health.tools[0]).toMatchObject({
+      installed: true,
+      enabled: false,
+      status: "disabled",
+      installUrl: null,
+      available: false,
+    });
+  });
+
+  it("reads the plugin list fresh on every call", async () => {
+    await host.harness.behavior.callRpc("getPluginHealth", null);
+
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({ plugins: [] })) as never,
+    );
+
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+    expect(health.floatingNotesAvailable).toBe(false);
+    expect(host.harness.inspection.sdk.callsTo("plugins.list")).toHaveLength(2);
   });
 });
