@@ -81,6 +81,54 @@ const PERSONAS_BY_ID: Record<
   persona_3: PERSONA_DRAFT,
 };
 
+const HEALTH_AVAILABLE = {
+  floatingNotesAvailable: true,
+  tools: [
+    {
+      id: "floating-notes",
+      label: "Floating Notes",
+      installed: true,
+      enabled: true,
+      status: "running",
+      version: "1.2.1",
+      installUrl: null,
+      available: true,
+    },
+  ],
+};
+
+const HEALTH_MISSING = {
+  floatingNotesAvailable: false,
+  tools: [
+    {
+      id: "floating-notes",
+      label: "Floating Notes",
+      installed: false,
+      enabled: false,
+      status: null,
+      version: null,
+      installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
+      available: false,
+    },
+  ],
+};
+
+const HEALTH_DISABLED = {
+  floatingNotesAvailable: false,
+  tools: [
+    {
+      id: "floating-notes",
+      label: "Floating Notes",
+      installed: true,
+      enabled: false,
+      status: "disabled",
+      version: "1.2.1",
+      installUrl: null,
+      available: false,
+    },
+  ],
+};
+
 const RPC = {
   listRail: () => ({ personas: RAIL_PERSONAS }),
   getPersona: (input: unknown) => {
@@ -129,6 +177,7 @@ const RPC = {
   savePersona: () => ({ ok: true }),
   publishPersona: () => ({ ok: true }),
   deletePersona: () => ({ ok: true }),
+  getPluginHealth: () => HEALTH_AVAILABLE,
 };
 
 async function loadPanel() {
@@ -838,6 +887,80 @@ describe("personas nav panel", () => {
       );
       expect(call?.input).toEqual({ threadId: "thr_old" });
     });
+    slot.lifecycle.unmount();
+  });
+});
+
+describe("plugin health settings section", () => {
+  async function loadSection() {
+    const app = await loadPluginApp(() => import("./app"));
+    const [section] = app.settingsSections;
+    expect(section).toBeDefined();
+    return section!;
+  }
+
+  it("registers one plugin-health settings section", async () => {
+    const section = await loadSection();
+    expect(section.id).toBe("plugin-health");
+    expect(section.title).toBe("Plugin health");
+  });
+
+  it("shows a green check, status, and version when Floating Notes is installed and enabled", async () => {
+    const section = await loadSection();
+    const slot = renderSlot(section, {}, { rpc: RPC });
+
+    await slot.findByText("Floating Notes");
+    const icon = await slot.findByLabelText("Installed and enabled");
+    expect(icon.getAttribute("class")).toContain("text-emerald-600");
+    expect(slot.getByText("Running · v1.2.1")).toBeTruthy();
+    expect(slot.queryByText("Install")).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("shows a red X, 'Not installed', and an install link to the bb plugin page when Floating Notes is missing", async () => {
+    const section = await loadSection();
+    const slot = renderSlot(section, {}, {
+      rpc: { ...RPC, getPluginHealth: () => HEALTH_MISSING },
+    });
+
+    const icon = await slot.findByLabelText("Not available");
+    expect(icon.getAttribute("class")).toContain("text-destructive");
+    expect(slot.getByText("Not installed")).toBeTruthy();
+
+    const installLink = slot.getByRole("link", { name: "Install" });
+    expect(installLink.getAttribute("href")).toBe(
+      "https://github.com/vburojevic/bb-plugin-floating-notes",
+    );
+    expect(installLink.getAttribute("target")).toBe("_blank");
+    slot.lifecycle.unmount();
+  });
+
+  it("shows a red X with an enable hint, and no install link, when Floating Notes is installed but disabled", async () => {
+    const section = await loadSection();
+    const slot = renderSlot(section, {}, {
+      rpc: { ...RPC, getPluginHealth: () => HEALTH_DISABLED },
+    });
+
+    const icon = await slot.findByLabelText("Not available");
+    expect(icon.getAttribute("class")).toContain("text-destructive");
+    expect(slot.getByText("Installed — disabled")).toBeTruthy();
+    expect(slot.queryByRole("link", { name: "Install" })).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("shows the RPC error inline instead of an empty box when the health read fails", async () => {
+    const section = await loadSection();
+    const slot = renderSlot(section, {}, {
+      rpc: {
+        ...RPC,
+        getPluginHealth: () => {
+          throw new Error("plugins.list unavailable");
+        },
+      },
+    });
+
+    await slot.findByText("plugins.list unavailable");
+    expect(slot.queryByText("Floating Notes")).toBeNull();
     slot.lifecycle.unmount();
   });
 });
