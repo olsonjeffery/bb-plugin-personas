@@ -94,9 +94,21 @@ const HEALTH_AVAILABLE = {
       installUrl: null,
       available: true,
     },
+    {
+      id: "simple-notes",
+      label: "Docs",
+      installed: true,
+      enabled: true,
+      status: "running",
+      version: "0.2.3",
+      installUrl: null,
+      available: true,
+    },
   ],
 };
 
+// Floating Notes missing but Docs healthy, so "Not installed" and the one
+// Install link both belong to the Floating Notes row.
 const HEALTH_MISSING = {
   floatingNotesAvailable: false,
   tools: [
@@ -108,6 +120,44 @@ const HEALTH_MISSING = {
       status: null,
       version: null,
       installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
+      available: false,
+    },
+    {
+      id: "simple-notes",
+      label: "Docs",
+      installed: true,
+      enabled: true,
+      status: "running",
+      version: "0.2.3",
+      installUrl: null,
+      available: true,
+    },
+  ],
+};
+
+// Docs missing but Floating Notes healthy, so the one Install link belongs to
+// the Docs row and points at the official plugin page.
+const HEALTH_DOCS_MISSING = {
+  floatingNotesAvailable: true,
+  tools: [
+    {
+      id: "floating-notes",
+      label: "Floating Notes",
+      installed: true,
+      enabled: true,
+      status: "running",
+      version: "1.2.1",
+      installUrl: null,
+      available: true,
+    },
+    {
+      id: "simple-notes",
+      label: "Docs",
+      installed: false,
+      enabled: false,
+      status: null,
+      version: null,
+      installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
       available: false,
     },
   ],
@@ -125,6 +175,16 @@ const HEALTH_DISABLED = {
       version: "1.2.1",
       installUrl: null,
       available: false,
+    },
+    {
+      id: "simple-notes",
+      label: "Docs",
+      installed: true,
+      enabled: true,
+      status: "running",
+      version: "0.2.3",
+      installUrl: null,
+      available: true,
     },
   ],
 };
@@ -905,14 +965,20 @@ describe("plugin health settings section", () => {
     expect(section.title).toBe("Plugin health");
   });
 
-  it("shows a green check, status, and version when Floating Notes is installed and enabled", async () => {
+  it("shows a green check, status, and version for each row when Floating Notes and Docs are installed and enabled", async () => {
     const section = await loadSection();
     const slot = renderSlot(section, {}, { rpc: RPC });
 
-    await slot.findByText("Floating Notes");
-    const icon = await slot.findByLabelText("Installed and enabled");
-    expect(icon.getAttribute("class")).toContain("text-emerald-600");
-    expect(slot.getByText("Running · v1.2.1")).toBeTruthy();
+    for (const [label, version] of [
+      ["Floating Notes", "1.2.1"],
+      ["Docs", "0.2.3"],
+    ] as const) {
+      const row = (await slot.findByText(label)).closest("li");
+      expect(row).not.toBeNull();
+      const icon = row!.querySelector('[aria-label="Installed and enabled"]');
+      expect(icon?.getAttribute("class")).toContain("text-emerald-600");
+      expect(row!.textContent).toContain(`Running · v${version}`);
+    }
     expect(slot.queryByText("Install")).toBeNull();
     slot.lifecycle.unmount();
   });
@@ -930,6 +996,32 @@ describe("plugin health settings section", () => {
     const installLink = slot.getByRole("link", { name: "Install" });
     expect(installLink.getAttribute("href")).toBe(
       "https://github.com/vburojevic/bb-plugin-floating-notes",
+    );
+    expect(installLink.getAttribute("target")).toBe("_blank");
+
+    // Docs keeps its green check while Floating Notes is missing.
+    const docsRow = (await slot.findByText("Docs")).closest("li");
+    expect(
+      docsRow!.querySelector('[aria-label="Installed and enabled"]'),
+    ).not.toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("shows a red X and an install link to the official Docs plugin page when Docs is missing", async () => {
+    const section = await loadSection();
+    const slot = renderSlot(section, {}, {
+      rpc: { ...RPC, getPluginHealth: () => HEALTH_DOCS_MISSING },
+    });
+
+    const docsRow = (await slot.findByText("Docs")).closest("li");
+    expect(docsRow).not.toBeNull();
+    const icon = docsRow!.querySelector('[aria-label="Not available"]');
+    expect(icon?.getAttribute("class")).toContain("text-destructive");
+    expect(docsRow!.textContent).toContain("Not installed");
+
+    const installLink = slot.getByRole("link", { name: "Install" });
+    expect(installLink.getAttribute("href")).toBe(
+      "https://github.com/get-bb/bb/tree/main/plugins/docs",
     );
     expect(installLink.getAttribute("target")).toBe("_blank");
     slot.lifecycle.unmount();

@@ -1,8 +1,8 @@
 // The Plugin health box on the Personas settings page (app.slots.
 // settingsSection). One row per cooperating plugin the Personas plugin can
-// use — today that is Floating Notes — with a green check when the plugin is
-// installed and enabled, a red X when it is not, and an inline install link
-// to its bb plugin page while it is missing.
+// use — today that is Floating Notes and the official Docs plugin — with a
+// green check when the plugin is installed and enabled, a red X when it is
+// not, and an inline install link to its bb plugin page while it is missing.
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { Icon } from "@/components/ui/icon";
 
