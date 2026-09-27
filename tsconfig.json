@@ -24,11 +24,11 @@
   "include": [
     "server.ts",
     "app.tsx",
-    "bots.ts",
+    "personas.ts",
     "components",
     "lib",
     "hooks",
-    "bots.test.ts",
+    "personas.test.ts",
     "server.test.ts",
     "app.test.tsx",
     "vitest.config.ts"

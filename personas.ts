@@ -1,4 +1,4 @@
-// Pure bot logic — no BB handle, no I/O. Everything here is unit-testable
+// Pure persona logic — no BB handle, no I/O. Everything here is unit-testable
 // without a running server.
 
 /** BB truncates instruction contributions at 4096 characters. */
@@ -6,7 +6,7 @@ export const INSTRUCTION_LIMIT = 4096;
 
 /**
  * Budget for the user's own instruction text, leaving room for the persona
- * wrapper renderBotInstructions puts around it.
+ * wrapper renderPersonaInstructions puts around it.
  */
 export const MAX_INSTRUCTIONS = 3500;
 
@@ -55,9 +55,9 @@ export const REASONING_LEVELS = [
 
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
-export type BotStatus = "draft" | "published";
+export type PersonaStatus = "draft" | "published";
 
-export interface Bot {
+export interface Persona {
   id: string;
   name: string;
   emoji: string;
@@ -67,7 +67,7 @@ export interface Bot {
   reasoningLevel: ReasoningLevel | null;
   /** null = projectless chat in BB's personal project. */
   projectId: string | null;
-  status: BotStatus;
+  status: PersonaStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -78,7 +78,7 @@ export function pickEmoji(): string {
 
 /**
  * Trims and validates a user-entered emoji. The 16-character bound mirrors
- * the saveBot RPC schema (server.ts: `z.string().min(1).max(16)`) so the UI
+ * the savePersona RPC schema (server.ts: `z.string().min(1).max(16)`) so the UI
  * can reject an out-of-range value locally instead of round-tripping to the
  * server just to have it bounce.
  */
@@ -98,7 +98,7 @@ export function isSingleEmoji(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0) return false;
   // Being one grapheme is not enough — "a" is one grapheme too, and auto-apply
-  // would turn the first letter someone types into the bot's icon. Require the
+  // would turn the first letter someone types into the persona's icon. Require the
   // cluster to actually be emoji: a pictographic character, a regional-indicator
   // pair (flags), or a combining enclosing keycap ("1️⃣", which is not itself
   // Extended_Pictographic).
@@ -146,71 +146,71 @@ function hash(value: string): number {
   return Math.abs(result);
 }
 
-/** Deterministic avatar tint classes for a bot id. */
-export function tintFor(botId: string): string {
-  return TINTS[hash(botId) % TINTS.length]!;
+/** Deterministic avatar tint classes for a persona id. */
+export function tintFor(personaId: string): string {
+  return TINTS[hash(personaId) % TINTS.length]!;
 }
 
-export function newBotId(): string {
-  // The "bot_" prefix keeps ids from colliding with the "new" route word.
-  return `bot_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+export function newPersonaId(): string {
+  // The "persona_" prefix keeps ids from colliding with the "new" route word.
+  return `persona_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
 export function clampInstructions(instructions: string): string {
   return instructions.trim().slice(0, MAX_INSTRUCTIONS);
 }
 
-/** Single-line preview of a bot's instructions for list cards. */
+/** Single-line preview of a persona's instructions for list cards. */
 export function previewInstructions(instructions: string): string {
   const collapsed = instructions.replace(/\s+/g, " ").trim();
   return collapsed.length > 0 ? collapsed : "No instructions yet.";
 }
 
 /** The editor autosaves drafts with a blank name, so list cards need a fallback. */
-export function displayName(bot: Bot): string {
-  return bot.name.trim() || "Untitled bot";
+export function displayName(persona: Persona): string {
+  return persona.name.trim() || "Untitled persona";
 }
 
 /**
  * Human-readable reasons a draft can't be published yet; [] means it can.
- * Publish-time is where validation now lives — saveBot autosaves a
- * half-typed bot on every keystroke, so it can't require these fields.
+ * Publish-time is where validation now lives — savePersona autosaves a
+ * half-typed persona on every keystroke, so it can't require these fields.
  */
-export function draftBlockers(bot: Bot): string[] {
+export function draftBlockers(persona: Persona): string[] {
   const blockers: string[] = [];
-  if (bot.name.trim().length === 0) blockers.push("a name");
-  if (bot.providerId.length === 0) blockers.push("a provider");
-  if (bot.model.length === 0) blockers.push("a model");
+  if (persona.name.trim().length === 0) blockers.push("a name");
+  if (persona.providerId.length === 0) blockers.push("a provider");
+  if (persona.model.length === 0) blockers.push("a model");
   return blockers;
 }
 
 /**
- * The persona block BB injects into every turn of a bot's threads. Kept under
+ * The persona block BB injects into every turn of a persona's threads. Kept under
  * INSTRUCTION_LIMIT by construction: MAX_INSTRUCTIONS plus this wrapper.
  */
-export function renderBotInstructions(bot: Bot): string {
+export function renderPersonaInstructions(persona: Persona): string {
   return [
-    `# Custom bot: ${bot.name}`,
+    `# Custom persona: ${persona.name}`,
     "",
-    `You are running as a custom bot named "${bot.name}" that the user built.`,
-    "The instructions below are the user's standing configuration for this bot.",
+    `You are running as a custom persona named "${persona.name}" that the user built.`,
+    "The instructions below are the user's standing configuration for this persona.",
     "Follow them in every response in this conversation, including later turns.",
     "They take precedence over your default response style. If they conflict",
     "with a specific request the user makes later, follow the later request.",
     "",
-    "<bot-instructions>",
-    bot.instructions,
-    "</bot-instructions>",
+    "<persona-instructions>",
+    persona.instructions,
+    "</persona-instructions>",
   ].join("\n");
 }
 
 export type Route =
   | { view: "list" }
   | { view: "new" }
-  | { view: "bot"; botId: string }
-  | { view: "edit"; botId: string }
-  | { view: "newChat"; botId: string }
-  | { view: "chat"; botId: string; threadId: string };
+  | { view: "persona"; personaId: string }
+  | { view: "edit"; personaId: string }
+  | { view: "newChat"; personaId: string }
+  | { view: "chat"; personaId: string; threadId: string };
 
 /**
  * Maps a navPanel subPath onto a view. Unknown shapes fall back to the list.
@@ -223,10 +223,10 @@ export function parseRoute(subPath: string): Route {
   const [first, second] = segments;
   if (first === "new") return { view: "new" };
   if (first === undefined) return { view: "list" };
-  if (second === undefined) return { view: "bot", botId: first };
-  if (second === "edit") return { view: "edit", botId: first };
-  if (second === "new") return { view: "newChat", botId: first };
-  return { view: "chat", botId: first, threadId: second };
+  if (second === undefined) return { view: "persona", personaId: first };
+  if (second === "edit") return { view: "edit", personaId: first };
+  if (second === "new") return { view: "newChat", personaId: first };
+  return { view: "chat", personaId: first, threadId: second };
 }
 
 export function routeToSubPath(route: Route): string {
@@ -235,19 +235,19 @@ export function routeToSubPath(route: Route): string {
       return "";
     case "new":
       return "new";
-    case "bot":
-      return route.botId;
+    case "persona":
+      return route.personaId;
     case "edit":
-      return `${route.botId}/edit`;
+      return `${route.personaId}/edit`;
     case "newChat":
-      return `${route.botId}/new`;
+      return `${route.personaId}/new`;
     case "chat":
-      return `${route.botId}/${route.threadId}`;
+      return `${route.personaId}/${route.threadId}`;
   }
 }
 
 /** A row as stored in SQLite (snake_case, integers for timestamps). */
-export interface BotRow {
+export interface PersonaRow {
   id: string;
   name: string;
   emoji: string;
@@ -268,7 +268,7 @@ export interface ChatSortable {
 }
 
 /**
- * Orders a bot's active chats for the list: pinned chats first (most
+ * Orders a persona's active chats for the list: pinned chats first (most
  * recently pinned on top), then everything else by most-recently-updated.
  * Exported as a pure helper — separate from listChats's I/O — so the
  * ordering rule is unit-testable without spinning up a fake plugin host.
@@ -283,7 +283,7 @@ export function sortChats<T extends ChatSortable>(chats: readonly T[]): T[] {
   });
 }
 
-export function rowToBot(row: BotRow): Bot {
+export function rowToPersona(row: PersonaRow): Persona {
   return {
     id: row.id,
     name: row.name,
@@ -292,13 +292,13 @@ export function rowToBot(row: BotRow): Bot {
     providerId: row.provider_id,
     model: row.model,
     // Any unrecognised stored value reads as unset rather than flowing
-    // uncaught into the UI and the saveBot RPC's zod schema.
+    // uncaught into the UI and the savePersona RPC's zod schema.
     reasoningLevel: REASONING_LEVELS.includes(row.reasoning_level as ReasoningLevel)
       ? (row.reasoning_level as ReasoningLevel)
       : null,
     projectId: row.project_id,
     // Any unexpected stored value reads as published rather than stranding
-    // a bot as an un-publishable draft.
+    // a persona as an un-publishable draft.
     status: row.status === "draft" ? "draft" : "published",
     createdAt: row.created_at,
     updatedAt: row.updated_at,

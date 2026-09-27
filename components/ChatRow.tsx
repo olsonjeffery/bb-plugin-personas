@@ -3,8 +3,8 @@ import { experimental_useSidebarThreadActions } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { Icon } from "@/components/ui/icon";
-import { formatRelative } from "@/components/BotRail";
-import { useBotsRpc } from "@/components/use-query";
+import { formatRelative } from "@/components/PersonaRail";
+import { usePersonasRpc } from "@/components/use-query";
 import { cn } from "@/lib/utils";
 
 const RENAME_LIMIT = 200;
@@ -35,7 +35,7 @@ export function ChatRow({
   onOpen: () => void;
   reload: () => void;
 }) {
-  const rpc = useBotsRpc();
+  const rpc = usePersonasRpc();
   const actions = experimental_useSidebarThreadActions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -43,7 +43,7 @@ export function ChatRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Same fix as BotHeader's more-actions menu: closing on the trigger's own onBlur
+  // Same fix as PersonaHeader's more-actions menu: closing on the trigger's own onBlur
   // fires on mousedown, before a menu item's click ever lands, so every item
   // was dead. Close on the *container's* blur instead, and only when focus
   // actually left the container.

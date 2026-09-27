@@ -1,8 +1,8 @@
-// bb-plugin-bots — backend entry.
+// bb-plugin-personas — backend entry.
 //
-// A "bot" is a name, an emoji, a block of instructions, and a model. Chatting
+// A "persona" is a name, an emoji, a block of instructions, and a model. Chatting
 // with one spawns an ordinary BB thread; bb.agents.contributeInstructions then
-// injects that bot's persona into every turn of that thread.
+// injects that persona's instructions into every turn of that thread.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -10,14 +10,14 @@ import {
   draftBlockers,
   MAX_INSTRUCTIONS,
   MAX_NAME,
-  newBotId,
+  newPersonaId,
   pickEmoji,
-  renderBotInstructions,
-  rowToBot,
+  renderPersonaInstructions,
+  rowToPersona,
   sortChats,
-  type Bot,
-  type BotRow,
-} from "./bots.js";
+  type Persona,
+  type PersonaRow,
+} from "./personas.js";
 
 const ReasoningLevel = z.enum([
   "none",
@@ -30,7 +30,7 @@ const ReasoningLevel = z.enum([
   "ultracode",
 ]);
 
-const BotSchema = z.object({
+const PersonaSchema = z.object({
   id: z.string(),
   name: z.string(),
   emoji: z.string(),
@@ -44,10 +44,10 @@ const BotSchema = z.object({
   updatedAt: z.number().int(),
 });
 
-// Lenient on purpose: the editor autosaves a half-typed bot on every
+// Lenient on purpose: the editor autosaves a half-typed persona on every
 // keystroke, so nothing here can require a value. Validation moves to
-// publish time (draftBlockers), where an incomplete bot actually matters.
-const BotPatchSchema = z
+// publish time (draftBlockers), where an incomplete persona actually matters.
+const PersonaPatchSchema = z
   .object({
     name: z.string().max(MAX_NAME),
     emoji: z.string().min(1).max(16),
@@ -119,46 +119,46 @@ const NewThreadRequestSchema = z.object({
 });
 
 export const rpcContract = defineRpcContract({
-  listBots: {
+  listPersonas: {
     input: z.null(),
-    output: z.object({ bots: z.array(BotSchema) }),
+    output: z.object({ personas: z.array(PersonaSchema) }),
   },
-  getBot: {
-    input: z.object({ botId: z.string() }).strict(),
-    output: z.object({ bot: BotSchema.nullable() }),
+  getPersona: {
+    input: z.object({ personaId: z.string() }).strict(),
+    output: z.object({ persona: PersonaSchema.nullable() }),
   },
   // Writes an empty draft row immediately; the editor seeds and autosaves
-  // provider/model/name itself via saveBot.
-  createBot: {
+  // provider/model/name itself via savePersona.
+  createPersona: {
     input: z.null(),
-    output: z.object({ botId: z.string() }),
+    output: z.object({ personaId: z.string() }),
   },
-  saveBot: {
-    input: z.object({ botId: z.string(), patch: BotPatchSchema }).strict(),
+  savePersona: {
+    input: z.object({ personaId: z.string(), patch: PersonaPatchSchema }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
-  publishBot: {
-    input: z.object({ botId: z.string() }).strict(),
+  publishPersona: {
+    input: z.object({ personaId: z.string() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
-  deleteBot: {
-    input: z.object({ botId: z.string() }).strict(),
+  deletePersona: {
+    input: z.object({ personaId: z.string() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
   listChats: {
-    input: z.object({ botId: z.string() }).strict(),
+    input: z.object({ personaId: z.string() }).strict(),
     output: z.object({
       chats: z.array(ChatSchema),
       archivedChats: z.array(ChatSchema),
     }),
   },
-  // The rail's single round trip: every bot plus its chats in one call, so
-  // the panel never has to fan out per-bot RPCs on load.
+  // The rail's single round trip: every persona plus its chats in one call, so
+  // the panel never has to fan out per-persona RPCs on load.
   listRail: {
     input: z.null(),
     output: z.object({
-      bots: z.array(
-        BotSchema.extend({
+      personas: z.array(
+        PersonaSchema.extend({
           chats: z.array(
             z.object({
               threadId: z.string(),
@@ -174,7 +174,7 @@ export const rpcContract = defineRpcContract({
   },
   startChat: {
     input: z
-      .object({ botId: z.string(), request: NewThreadRequestSchema })
+      .object({ personaId: z.string(), request: NewThreadRequestSchema })
       .strict(),
     output: z.object({ threadId: z.string() }),
   },
@@ -220,7 +220,7 @@ export const rpcContract = defineRpcContract({
 export default async function plugin(bb: BbPluginApi) {
   const db = bb.storage.database();
   bb.storage.migrate(db, [
-    `CREATE TABLE IF NOT EXISTS bots (
+    `CREATE TABLE IF NOT EXISTS personas (
        id              TEXT PRIMARY KEY,
        name            TEXT NOT NULL,
        emoji           TEXT NOT NULL,
@@ -232,69 +232,103 @@ export default async function plugin(bb: BbPluginApi) {
        created_at      INTEGER NOT NULL,
        updated_at      INTEGER NOT NULL
      )`,
-    `CREATE TABLE IF NOT EXISTS bot_threads (
+    `CREATE TABLE IF NOT EXISTS persona_threads (
        thread_id  TEXT PRIMARY KEY,
-       bot_id     TEXT NOT NULL,
+       persona_id TEXT NOT NULL,
        created_at INTEGER NOT NULL
      )`,
-    `CREATE INDEX IF NOT EXISTS bot_threads_bot_id ON bot_threads(bot_id)`,
+    `CREATE INDEX IF NOT EXISTS persona_threads_persona_id ON persona_threads(persona_id)`,
     // The DEFAULT backfills every existing row as published, so there's no
     // separate backfill statement or code path.
-    `ALTER TABLE bots ADD COLUMN status TEXT NOT NULL DEFAULT 'published'`,
+    `ALTER TABLE personas ADD COLUMN status TEXT NOT NULL DEFAULT 'published'`,
   ]);
+
+  // One-time carry-over from the pre-rename schema (tables `bots` and
+  // `bot_threads`, written by versions before this plugin was renamed to
+  // personas). Checked on every start so it's idempotent; the legacy tables
+  // are dropped once their rows have been copied across. Old `bot_*` id
+  // prefixes are left untouched — ids are opaque strings everywhere else.
+  const legacyTables = new Set(
+    (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name),
+  );
+  if (legacyTables.has("bots")) {
+    // Rows written before the status column existed still read as published.
+    const legacyHasStatus = (
+      db.prepare("PRAGMA table_info(bots)").all() as { name: string }[]
+    ).some((column) => column.name === "status");
+    db.prepare(
+      `INSERT INTO personas (id, name, emoji, instructions, provider_id, model,
+                             reasoning_level, project_id, status, created_at, updated_at)
+       SELECT id, name, emoji, instructions, provider_id, model,
+              reasoning_level, project_id, ${legacyHasStatus ? "status" : "'published'"}, created_at, updated_at
+         FROM bots`,
+    ).run();
+    db.prepare("DROP TABLE bots").run();
+  }
+  if (legacyTables.has("bot_threads")) {
+    db.prepare(
+      `INSERT INTO persona_threads (thread_id, persona_id, created_at)
+       SELECT thread_id, bot_id, created_at FROM bot_threads`,
+    ).run();
+    db.prepare("DROP TABLE bot_threads").run();
+  }
 
   // contributeInstructions is synchronous and sits on the thread-start path,
   // so SQLite is the durable store and these maps are the read path. A BB
   // plugin is one in-process module, so caching here is safe.
-  const botsById = new Map<string, Bot>();
-  const botIdByThreadId = new Map<string, string>();
+  const personasById = new Map<string, Persona>();
+  const personaIdByThreadId = new Map<string, string>();
 
-  for (const row of db.prepare("SELECT * FROM bots").all() as BotRow[]) {
-    botsById.set(row.id, rowToBot(row));
+  for (const row of db.prepare("SELECT * FROM personas").all() as PersonaRow[]) {
+    personasById.set(row.id, rowToPersona(row));
   }
   for (const row of db
-    .prepare("SELECT thread_id, bot_id FROM bot_threads")
-    .all() as { thread_id: string; bot_id: string }[]) {
-    botIdByThreadId.set(row.thread_id, row.bot_id);
+    .prepare("SELECT thread_id, persona_id FROM persona_threads")
+    .all() as { thread_id: string; persona_id: string }[]) {
+    personaIdByThreadId.set(row.thread_id, row.persona_id);
   }
   bb.log.info(
-    `loaded ${botsById.size} bots across ${botIdByThreadId.size} threads`,
+    `loaded ${personasById.size} personas across ${personaIdByThreadId.size} threads`,
   );
 
   // The whole point of the plugin. Returning null for unmapped threads is
-  // load-bearing: without it every thread in BB would inherit a bot persona.
+   // load-bearing: without it every thread in BB would inherit a persona.
   bb.agents.contributeInstructions(({ threadId }) => {
-    const botId = botIdByThreadId.get(threadId);
-    if (botId === undefined) return null;
-    const bot = botsById.get(botId);
-    if (bot === undefined) return null;
-    return renderBotInstructions(bot);
+    const personaId = personaIdByThreadId.get(threadId);
+    if (personaId === undefined) return null;
+    const persona = personasById.get(personaId);
+    if (persona === undefined) return null;
+    return renderPersonaInstructions(persona);
   });
 
-  function readBot(botId: string): Bot {
-    const bot = botsById.get(botId);
-    if (bot === undefined) throw new Error(`Unknown bot: ${botId}`);
-    return bot;
+  function readPersona(personaId: string): Persona {
+    const persona = personasById.get(personaId);
+    if (persona === undefined) throw new Error(`Unknown persona: ${personaId}`);
+    return persona;
   }
 
   function announce() {
-    bb.realtime.publish("bots", { changedAt: Date.now() });
+    bb.realtime.publish("personas", { changedAt: Date.now() });
   }
 
   bb.rpc.register(rpcContract, {
-    listBots: () => ({
-      bots: [...botsById.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+    listPersonas: () => ({
+      personas: [...personasById.values()].sort((a, b) => b.updatedAt - a.updatedAt),
     }),
 
-    getBot: ({ botId }) => ({ bot: botsById.get(botId) ?? null }),
+    getPersona: ({ personaId }) => ({ persona: personasById.get(personaId) ?? null }),
 
-    // Writes a bare row immediately so the editor has a botId to autosave
+    // Writes a bare row immediately so the editor has a personaId to autosave
     // against from the very first keystroke. The editor seeds and saves
-    // provider/model/name itself via saveBot right after.
-    createBot: () => {
+    // provider/model/name itself via savePersona right after.
+    createPersona: () => {
       const now = Date.now();
-      const bot: Bot = {
-        id: newBotId(),
+      const persona: Persona = {
+        id: newPersonaId(),
         name: "",
         emoji: pickEmoji(),
         instructions: "",
@@ -307,33 +341,33 @@ export default async function plugin(bb: BbPluginApi) {
         updatedAt: now,
       };
       db.prepare(
-        `INSERT INTO bots (id, name, emoji, instructions, provider_id, model,
+        `INSERT INTO personas (id, name, emoji, instructions, provider_id, model,
                            reasoning_level, project_id, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
-        bot.id,
-        bot.name,
-        bot.emoji,
-        bot.instructions,
-        bot.providerId,
-        bot.model,
-        bot.reasoningLevel,
-        bot.projectId,
-        bot.status,
-        bot.createdAt,
-        bot.updatedAt,
+        persona.id,
+        persona.name,
+        persona.emoji,
+        persona.instructions,
+        persona.providerId,
+        persona.model,
+        persona.reasoningLevel,
+        persona.projectId,
+        persona.status,
+        persona.createdAt,
+        persona.updatedAt,
       );
-      botsById.set(bot.id, bot);
+      personasById.set(persona.id, persona);
       announce();
-      return { botId: bot.id };
+      return { personaId: persona.id };
     },
 
     // Applies only the keys the editor actually sent — an autosave from a
     // half-typed form must never blow away fields the user hasn't touched
-    // yet — and never touches status; that's publishBot's job alone.
-    saveBot: ({ botId, patch }) => {
-      const existing = readBot(botId);
-      const bot: Bot = {
+    // yet — and never touches status; that's publishPersona's job alone.
+    savePersona: ({ personaId, patch }) => {
+      const existing = readPersona(personaId);
+      const persona: Persona = {
         ...existing,
         ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
         ...(patch.emoji !== undefined ? { emoji: patch.emoji } : {}),
@@ -353,58 +387,58 @@ export default async function plugin(bb: BbPluginApi) {
         updatedAt: Date.now(),
       };
       db.prepare(
-        `UPDATE bots
+        `UPDATE personas
             SET name = ?, emoji = ?, instructions = ?, provider_id = ?,
                 model = ?, reasoning_level = ?, project_id = ?, updated_at = ?
           WHERE id = ?`,
       ).run(
-        bot.name,
-        bot.emoji,
-        bot.instructions,
-        bot.providerId,
-        bot.model,
-        bot.reasoningLevel,
-        bot.projectId,
-        bot.updatedAt,
-        bot.id,
+        persona.name,
+        persona.emoji,
+        persona.instructions,
+        persona.providerId,
+        persona.model,
+        persona.reasoningLevel,
+        persona.projectId,
+        persona.updatedAt,
+        persona.id,
       );
-      botsById.set(bot.id, bot);
+      personasById.set(persona.id, persona);
       announce();
       return { ok: true };
     },
 
-    // Publishing an already-published bot is a no-op success — the editor
+    // Publishing an already-published persona is a no-op success — the editor
     // doesn't need to know which state it started in.
-    publishBot: ({ botId }) => {
-      const existing = readBot(botId);
+    publishPersona: ({ personaId }) => {
+      const existing = readPersona(personaId);
       if (existing.status === "published") return { ok: true };
       const blockers = draftBlockers(existing);
       if (blockers.length > 0) {
         throw new Error(`Missing: ${blockers.join(", ")}`);
       }
-      const bot: Bot = {
+      const persona: Persona = {
         ...existing,
         status: "published",
         updatedAt: Date.now(),
       };
-      db.prepare("UPDATE bots SET status = ?, updated_at = ? WHERE id = ?").run(
-        bot.status,
-        bot.updatedAt,
-        bot.id,
+      db.prepare("UPDATE personas SET status = ?, updated_at = ? WHERE id = ?").run(
+        persona.status,
+        persona.updatedAt,
+        persona.id,
       );
-      botsById.set(bot.id, bot);
+      personasById.set(persona.id, persona);
       announce();
       return { ok: true };
     },
 
-    // Deletes the bot and its thread mappings. The threads themselves are real
+    // Deletes the persona and its thread mappings. The threads themselves are real
     // conversations, so they stay — they just stop receiving the persona.
-    deleteBot: ({ botId }) => {
-      db.prepare("DELETE FROM bot_threads WHERE bot_id = ?").run(botId);
-      db.prepare("DELETE FROM bots WHERE id = ?").run(botId);
-      botsById.delete(botId);
-      for (const [threadId, mapped] of botIdByThreadId) {
-        if (mapped === botId) botIdByThreadId.delete(threadId);
+    deletePersona: ({ personaId }) => {
+      db.prepare("DELETE FROM persona_threads WHERE persona_id = ?").run(personaId);
+      db.prepare("DELETE FROM personas WHERE id = ?").run(personaId);
+      personasById.delete(personaId);
+      for (const [threadId, mapped] of personaIdByThreadId) {
+        if (mapped === personaId) personaIdByThreadId.delete(threadId);
       }
       announce();
       return { ok: true };
@@ -412,13 +446,13 @@ export default async function plugin(bb: BbPluginApi) {
 
     // Two threads.list calls (active, archived) run concurrently — still
     // never a per-thread threads.get loop, and still filtered by our own
-    // mapping so a bot only ever sees its own chats.
-    listChats: async ({ botId }) => {
+    // mapping so a persona only ever sees its own chats.
+    listChats: async ({ personaId }) => {
       const mine = new Set(
         (
           db
-            .prepare("SELECT thread_id FROM bot_threads WHERE bot_id = ?")
-            .all(botId) as { thread_id: string }[]
+            .prepare("SELECT thread_id FROM persona_threads WHERE persona_id = ?")
+            .all(personaId) as { thread_id: string }[]
         ).map((row) => row.thread_id),
       );
       if (mine.size === 0) return { chats: [], archivedChats: [] };
@@ -457,66 +491,66 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     // The rail's one round trip: a single threads.list call, bucketed by
-    // bot_threads in memory. Never a per-bot threads.list or a per-thread
+    // persona_threads in memory. Never a per-persona threads.list or a per-thread
     // threads.get.
     listRail: async () => {
-      const chatsByBotId = new Map<
+      const chatsByPersonaId = new Map<
         string,
         { threadId: string; title: string | null; status: string; updatedAt: number }[]
       >();
-      const botIdByThreadIdRows = db
-        .prepare("SELECT thread_id, bot_id FROM bot_threads")
-        .all() as { thread_id: string; bot_id: string }[];
-      const botIdByOwnThreadId = new Map(
-        botIdByThreadIdRows.map((row) => [row.thread_id, row.bot_id]),
+      const personaIdByThreadIdRows = db
+        .prepare("SELECT thread_id, persona_id FROM persona_threads")
+        .all() as { thread_id: string; persona_id: string }[];
+      const personaIdByOwnThreadId = new Map(
+        personaIdByThreadIdRows.map((row) => [row.thread_id, row.persona_id]),
       );
       // Excludes archived threads: an archived chat is put away on purpose,
       // so it must not resurface as the rail's subtitle or bump
-      // lastActivityAt back to the top of the bot list.
+      // lastActivityAt back to the top of the persona list.
       const threads = await bb.sdk.threads.list({
         originPluginId: bb.pluginId,
         limit: 200,
         archived: false,
       });
       for (const thread of threads) {
-        const botId = botIdByOwnThreadId.get(thread.id);
-        if (botId === undefined) continue;
-        const chats = chatsByBotId.get(botId) ?? [];
+        const personaId = personaIdByOwnThreadId.get(thread.id);
+        if (personaId === undefined) continue;
+        const chats = chatsByPersonaId.get(personaId) ?? [];
         chats.push({
           threadId: thread.id,
           title: thread.title ?? thread.titleFallback,
           status: thread.status,
           updatedAt: thread.updatedAt,
         });
-        chatsByBotId.set(botId, chats);
+        chatsByPersonaId.set(personaId, chats);
       }
-      const bots = [...botsById.values()].map((bot) => {
-        const chats = (chatsByBotId.get(bot.id) ?? []).sort(
+      const personas = [...personasById.values()].map((persona) => {
+        const chats = (chatsByPersonaId.get(persona.id) ?? []).sort(
           (a, b) => b.updatedAt - a.updatedAt,
         );
         const newestChatAt = chats[0]?.updatedAt ?? 0;
         return {
-          ...bot,
+          ...persona,
           chats,
-          lastActivityAt: Math.max(bot.updatedAt, newestChatAt),
+          lastActivityAt: Math.max(persona.updatedAt, newestChatAt),
         };
       });
-      bots.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-      return { bots };
+      personas.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+      return { personas };
     },
 
     // The composer already resolved a concrete projectId and environment
     // (including "Don't work in a project", which submits the personal
     // project id, not null), so there's nothing left to resolve here. Note
-    // this makes the bot's stored provider/model/project/reasoning SEEDS for
+    // this makes the persona's stored provider/model/project/reasoning SEEDS for
     // the composer, not enforcement — a chat can be started on a different
-    // model or project than the bot was configured with, and the persona
+    // model or project than the persona was configured with, and the persona
     // still applies because contributeInstructions maps per-thread, not
     // per-model.
-    startChat: async ({ botId, request }) => {
-      const bot = readBot(botId);
-      if (bot.status === "draft") {
-        throw new Error("Publish this bot before starting a chat");
+    startChat: async ({ personaId, request }) => {
+      const persona = readPersona(personaId);
+      if (persona.status === "draft") {
+        throw new Error("Publish this persona before starting a chat");
       }
 
       // The composer already validated these against the host's literal
@@ -537,18 +571,18 @@ export default async function plugin(bb: BbPluginApi) {
         environment: request.environment,
         input: request.input,
         // Deliberately omitted: title is optional in CreateThreadRequest and
-        // BB auto-titles the thread from its first message. Passing bot.name
-        // here used to make every chat literally named after the bot.
+        // BB auto-titles the thread from its first message. Passing persona.name
+        // here used to make every chat literally named after the persona.
       };
       const thread = await bb.sdk.threads.spawn(
         spawnArgs as Parameters<typeof bb.sdk.threads.spawn>[0],
       );
 
       db.prepare(
-        "INSERT INTO bot_threads (thread_id, bot_id, created_at) VALUES (?, ?, ?)",
-      ).run(thread.id, bot.id, Date.now());
-      botIdByThreadId.set(thread.id, bot.id);
-      bb.log.info(`started chat ${thread.id} for bot ${bot.id}`);
+        "INSERT INTO persona_threads (thread_id, persona_id, created_at) VALUES (?, ?, ?)",
+      ).run(thread.id, persona.id, Date.now());
+      personaIdByThreadId.set(thread.id, persona.id);
+      bb.log.info(`started chat ${thread.id} for persona ${persona.id}`);
       return { threadId: thread.id };
     },
 
@@ -557,13 +591,13 @@ export default async function plugin(bb: BbPluginApi) {
     // only mutation the plugin itself needs to expose. The ownership check
     // below is load-bearing: without it, any caller of this RPC could pass
     // an arbitrary threadId and unarchive a thread that has nothing to do
-    // with this plugin's bots.
+    // with this plugin's personas.
     unarchiveChat: async ({ threadId }) => {
-      // botIdByThreadId is the in-memory mirror of bot_threads kept in sync
-      // by startChat/deleteBot/thread.deleted, so checking it here is the
+      // personaIdByThreadId is the in-memory mirror of persona_threads kept in sync
+      // by startChat/deletePersona/thread.deleted, so checking it here is the
       // same "is this ours" test contributeInstructions already relies on —
       // no need for a separate SELECT against the table it mirrors.
-      if (botIdByThreadId.get(threadId) === undefined) {
+      if (personaIdByThreadId.get(threadId) === undefined) {
         throw new Error(`Unknown chat: ${threadId}`);
       }
       await bb.sdk.threads.unarchive({ threadId });
@@ -614,21 +648,21 @@ export default async function plugin(bb: BbPluginApi) {
   // Keep the mapping from growing without bound. Archived threads are still
   // resumable, so only deletion drops the persona link.
   bb.events.on("thread.deleted", ({ thread }) => {
-    if (!botIdByThreadId.delete(thread.id)) return;
-    db.prepare("DELETE FROM bot_threads WHERE thread_id = ?").run(thread.id);
+    if (!personaIdByThreadId.delete(thread.id)) return;
+    db.prepare("DELETE FROM persona_threads WHERE thread_id = ?").run(thread.id);
     // Without this, a second open BB window keeps showing a chat that was
     // just deleted from the first window until its next unrelated refresh.
     announce();
   });
 
-  // Deliberately does NOT touch bot_threads: archiving just puts a chat away,
+  // Deliberately does NOT touch persona_threads: archiving just puts a chat away,
   // it doesn't end it, so the persona mapping must survive until the thread
   // comes back via unarchiveChat (or is actually deleted). Only announce for
   // threads that are ours — bb archives threads belonging to every plugin
   // and to no plugin at all, and this channel exists solely to tell this
   // plugin's own panels to refresh.
   bb.events.on("thread.archived", ({ thread }) => {
-    if (botIdByThreadId.get(thread.id) === undefined) return;
+    if (personaIdByThreadId.get(thread.id) === undefined) return;
     announce();
   });
 }

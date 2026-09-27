@@ -10,7 +10,7 @@ const PROJECTS = [
 function makeHost() {
   let nextThread = 0;
   return createFakePluginHost({
-    pluginId: "bots",
+    pluginId: "personas",
     sdk: {
       projects: { list: async () => PROJECTS },
       providers: {
@@ -63,7 +63,7 @@ function makeHost() {
   });
 }
 
-// The full set of fields saveBot accepts, standing in for what the editor
+// The full set of fields savePersona accepts, standing in for what the editor
 // autosaves once the user has filled everything in.
 const PATCH = {
   name: "Pirate",
@@ -100,29 +100,29 @@ beforeEach(async () => {
   await plugin(host.bb);
 });
 
-// createBot only ever writes a bare draft row now; tests that need a
-// complete, publishable bot go through saveBot + publishBot the same way
+// createPersona only ever writes a bare draft row now; tests that need a
+// complete, publishable persona go through savePersona + publishPersona the same way
 // the editor does.
-async function createPublishedBot(): Promise<string> {
-  const { botId } = (await host.harness.behavior.callRpc(
-    "createBot",
+async function createPublishedPersona(): Promise<string> {
+  const { personaId } = (await host.harness.behavior.callRpc(
+    "createPersona",
     null,
-  )) as { botId: string };
-  await host.harness.behavior.callRpc("saveBot", { botId, patch: PATCH });
-  await host.harness.behavior.callRpc("publishBot", { botId });
-  return botId;
+  )) as { personaId: string };
+  await host.harness.behavior.callRpc("savePersona", { personaId, patch: PATCH });
+  await host.harness.behavior.callRpc("publishPersona", { personaId });
+  return personaId;
 }
 
-describe("createBot / saveBot / publishBot", () => {
-  it("createBot writes a draft with no name, provider, or model", async () => {
-    const { botId } = (await host.harness.behavior.callRpc(
-      "createBot",
+describe("createPersona / savePersona / publishPersona", () => {
+  it("createPersona writes a draft with no name, provider, or model", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
       null,
-    )) as { botId: string };
-    const { bot } = (await host.harness.behavior.callRpc("getBot", {
-      botId,
-    })) as { bot: { status: string; name: string; providerId: string; model: string } | null };
-    expect(bot).toMatchObject({
+    )) as { personaId: string };
+    const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+      personaId,
+    })) as { persona: { status: string; name: string; providerId: string; model: string } | null };
+    expect(persona).toMatchObject({
       status: "draft",
       name: "",
       providerId: "",
@@ -130,86 +130,86 @@ describe("createBot / saveBot / publishBot", () => {
     });
   });
 
-  it("saveBot applies only the given keys and never touches status", async () => {
-    const { botId } = (await host.harness.behavior.callRpc(
-      "createBot",
+  it("savePersona applies only the given keys and never touches status", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
       null,
-    )) as { botId: string };
-    await host.harness.behavior.callRpc("saveBot", {
-      botId,
+    )) as { personaId: string };
+    await host.harness.behavior.callRpc("savePersona", {
+      personaId,
       patch: { name: "Pirate" },
     });
-    const { bot } = (await host.harness.behavior.callRpc("getBot", {
-      botId,
-    })) as { bot: { status: string; name: string; providerId: string } | null };
-    expect(bot).toMatchObject({
+    const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+      personaId,
+    })) as { persona: { status: string; name: string; providerId: string } | null };
+    expect(persona).toMatchObject({
       status: "draft",
       name: "Pirate",
       providerId: "",
     });
   });
 
-  it("publishBot throws listing every missing field", async () => {
-    const { botId } = (await host.harness.behavior.callRpc(
-      "createBot",
+  it("publishPersona throws listing every missing field", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
       null,
-    )) as { botId: string };
+    )) as { personaId: string };
     await expect(
-      host.harness.behavior.callRpc("publishBot", { botId }),
+      host.harness.behavior.callRpc("publishPersona", { personaId }),
     ).rejects.toThrow("Missing: a name, a provider, a model");
   });
 
-  it("publishBot succeeds once name, provider, and model are all set", async () => {
-    const { botId } = (await host.harness.behavior.callRpc(
-      "createBot",
+  it("publishPersona succeeds once name, provider, and model are all set", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
       null,
-    )) as { botId: string };
-    await host.harness.behavior.callRpc("saveBot", { botId, patch: PATCH });
-    const result = (await host.harness.behavior.callRpc("publishBot", {
-      botId,
+    )) as { personaId: string };
+    await host.harness.behavior.callRpc("savePersona", { personaId, patch: PATCH });
+    const result = (await host.harness.behavior.callRpc("publishPersona", {
+      personaId,
     })) as { ok: boolean };
     expect(result).toEqual({ ok: true });
-    const { bot } = (await host.harness.behavior.callRpc("getBot", {
-      botId,
-    })) as { bot: { status: string } | null };
-    expect(bot?.status).toBe("published");
+    const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+      personaId,
+    })) as { persona: { status: string } | null };
+    expect(persona?.status).toBe("published");
   });
 
-  it("publishing an already-published bot is a no-op success", async () => {
-    const botId = await createPublishedBot();
-    const result = (await host.harness.behavior.callRpc("publishBot", {
-      botId,
+  it("publishing an already-published persona is a no-op success", async () => {
+    const personaId = await createPublishedPersona();
+    const result = (await host.harness.behavior.callRpc("publishPersona", {
+      personaId,
     })) as { ok: boolean };
     expect(result).toEqual({ ok: true });
   });
 });
 
 describe("instruction routing", () => {
-  it("contributes the persona only to that bot's own threads", async () => {
-    const botId = await createPublishedBot();
+  it("contributes the persona only to that persona's own threads", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
 
     const provide = host.harness.registrations.instructionProvider;
     expect(provide).not.toBeNull();
 
-    const forBot = provide!({ threadId, projectId: "proj_personal" });
-    expect(forBot).toContain("Pirate");
-    expect(forBot).toContain("Always answer in pirate speak.");
+    const forPersona = provide!({ threadId, projectId: "proj_personal" });
+    expect(forPersona).toContain("Pirate");
+    expect(forPersona).toContain("Always answer in pirate speak.");
 
     // The guard that keeps personas out of every other thread in BB.
     expect(provide!({ threadId: "thr_unrelated", projectId: "p" })).toBeNull();
   });
 
-  it("stops contributing once the bot is deleted", async () => {
-    const botId = await createPublishedBot();
+  it("stops contributing once the persona is deleted", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
-    await host.harness.behavior.callRpc("deleteBot", { botId });
+    await host.harness.behavior.callRpc("deletePersona", { personaId });
 
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toBeNull();
@@ -217,27 +217,27 @@ describe("instruction routing", () => {
 });
 
 describe("startChat", () => {
-  it("rejects starting a chat on a draft bot", async () => {
-    const { botId } = (await host.harness.behavior.callRpc(
-      "createBot",
+  it("rejects starting a chat on a draft persona", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
       null,
-    )) as { botId: string };
+    )) as { personaId: string };
     await expect(
       host.harness.behavior.callRpc("startChat", {
-        botId,
+        personaId,
         request: makeRequest(),
       }),
-    ).rejects.toThrow("Publish this bot before starting a chat");
+    ).rejects.toThrow("Publish this persona before starting a chat");
   });
 
   it("forwards an image-bearing input array to threads.spawn verbatim", async () => {
-    const botId = await createPublishedBot();
+    const personaId = await createPublishedPersona();
     const input = [
       { type: "text" as const, text: "check this out", mentions: [] },
       { type: "localImage" as const, path: "attachments/shot.png" },
     ];
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest({ input }),
     });
 
@@ -246,14 +246,14 @@ describe("startChat", () => {
   });
 
   it("forwards the opaque environment and executionInputSources untouched", async () => {
-    const botId = await createPublishedBot();
+    const personaId = await createPublishedPersona();
     const environment = { type: "project-default" };
     const executionInputSources = {
       providerId: "explicit" as const,
       model: "client-preference" as const,
     };
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest({
         projectId: "proj_work",
         environment,
@@ -270,12 +270,12 @@ describe("startChat", () => {
   });
 
   // Regression pin for the reported bug: `title` used to be hardcoded to
-  // bot.name, so every chat in the UI was literally named "Builder". BB
+  // persona.name, so every chat in the UI was literally named "Builder". BB
   // auto-titles a thread from its first message when title is omitted.
   it("passes no title to threads.spawn, letting BB auto-title the thread", async () => {
-    const botId = await createPublishedBot();
+    const personaId = await createPublishedPersona();
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
 
@@ -283,10 +283,10 @@ describe("startChat", () => {
     expect(args?.[0]).not.toHaveProperty("title");
   });
 
-  it("maps the new thread to the bot so contributeInstructions returns its persona", async () => {
-    const botId = await createPublishedBot();
+  it("maps the new thread to the persona so contributeInstructions returns its persona", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
 
@@ -298,61 +298,118 @@ describe("startChat", () => {
 });
 
 describe("persistence", () => {
-  it("keeps bots and their thread mapping across a reload", async () => {
-    const botId = await createPublishedBot();
+  it("keeps personas and their thread mapping across a reload", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
 
     await host.harness.lifecycle.reload(plugin);
 
-    const { bots } = (await host.harness.behavior.callRpc(
-      "listBots",
+    const { personas } = (await host.harness.behavior.callRpc(
+      "listPersonas",
       null,
-    )) as { bots: { id: string }[] };
-    expect(bots.map((bot) => bot.id)).toEqual([botId]);
+    )) as { personas: { id: string }[] };
+    expect(personas.map((persona) => persona.id)).toEqual([personaId]);
 
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toContain("Pirate");
   });
 
-  it("reads a bot inserted before the status column existed as published", async () => {
+  it("reads a persona inserted before the status column existed as published", async () => {
     // Simulates a row from before this migration ran: no explicit status,
     // so the ALTER TABLE ... DEFAULT 'published' is what backfills it. Using
     // the plugin's own INSERT column list minus status would defeat the
     // point, so this inserts exactly like the pre-migration schema did.
     const db = host.bb.storage.database();
     db.prepare(
-      `INSERT INTO bots (id, name, emoji, instructions, provider_id, model,
+      `INSERT INTO personas (id, name, emoji, instructions, provider_id, model,
                          reasoning_level, project_id, created_at, updated_at)
-       VALUES ('bot_legacy', 'Legacy', '🤖', 'Be legacy.', 'codex', 'gpt-5.5',
+       VALUES ('persona_legacy', 'Legacy', '🤖', 'Be legacy.', 'codex', 'gpt-5.5',
                'medium', NULL, 1, 1)`,
     ).run();
 
     // reload() disposes the current host and hands back a fresh one against
     // the same on-disk database, which is what actually re-runs the load
-    // path (SELECT * FROM bots) over the row just inserted.
+    // path (SELECT * FROM personas) over the row just inserted.
     const reloaded = await host.harness.lifecycle.reload(plugin);
 
-    const { bot } = (await reloaded.harness.behavior.callRpc("getBot", {
-      botId: "bot_legacy",
-    })) as { bot: { status: string } | null };
-    expect(bot?.status).toBe("published");
+    const { persona } = (await reloaded.harness.behavior.callRpc("getPersona", {
+      personaId: "persona_legacy",
+    })) as { persona: { status: string } | null };
+    expect(persona?.status).toBe("published");
+  });
+
+  it("carries rows over from the pre-rename bots tables and drops them", async () => {
+    // Simulates a database last written before the plugin was renamed:
+    // data lives in `bots` / `bot_threads`, including a mapping that
+    // contributeInstructions must keep honoring after the copy.
+    const db = host.bb.storage.database();
+    db.prepare(
+      `CREATE TABLE bots (
+         id              TEXT PRIMARY KEY,
+         name            TEXT NOT NULL,
+         emoji           TEXT NOT NULL,
+         instructions    TEXT NOT NULL,
+         provider_id     TEXT NOT NULL,
+         model           TEXT NOT NULL,
+         reasoning_level TEXT,
+         project_id      TEXT,
+         status          TEXT NOT NULL DEFAULT 'published',
+         created_at      INTEGER NOT NULL,
+         updated_at      INTEGER NOT NULL
+       )`,
+    ).run();
+    db.prepare(
+      `INSERT INTO bots VALUES ('persona_legacy', 'Legacy', '🤖', 'Be legacy.',
+                                'codex', 'gpt-5.5', 'medium', NULL, 'published', 1, 1)`,
+    ).run();
+    db.prepare(
+      `CREATE TABLE bot_threads (
+         thread_id  TEXT PRIMARY KEY,
+         bot_id     TEXT NOT NULL,
+         created_at INTEGER NOT NULL
+       )`,
+    ).run();
+    db.prepare(
+      `INSERT INTO bot_threads VALUES ('thr_legacy', 'persona_legacy', 2)`,
+    ).run();
+
+    const reloaded = await host.harness.lifecycle.reload(plugin);
+
+    const { persona } = (await reloaded.harness.behavior.callRpc("getPersona", {
+      personaId: "persona_legacy",
+    })) as { persona: { status: string; name: string } | null };
+    expect(persona).toMatchObject({ status: "published", name: "Legacy" });
+
+    const provide = reloaded.harness.registrations.instructionProvider!;
+    expect(provide({ threadId: "thr_legacy", projectId: "p" })).toContain(
+      "Legacy",
+    );
+
+    const tableNames = (
+      reloaded.bb.storage
+        .database()
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(tableNames).not.toContain("bots");
+    expect(tableNames).not.toContain("bot_threads");
   });
 });
 
 describe("listChats", () => {
-  it("returns only this bot's threads without a per-thread lookup", async () => {
-    const botId = await createPublishedBot();
+  it("returns only this persona's threads without a per-thread lookup", async () => {
+    const personaId = await createPublishedPersona();
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
 
     const { chats, archivedChats } = (await host.harness.behavior.callRpc(
       "listChats",
-      { botId },
+      { personaId },
     )) as { chats: unknown[]; archivedChats: unknown[] };
     expect(chats).toEqual([
       {
@@ -368,17 +425,17 @@ describe("listChats", () => {
     expect(host.harness.inspection.sdk.callsTo("threads.get")).toHaveLength(0);
   });
 
-  it("splits active vs archived threads and excludes threads that aren't this bot's own", async () => {
-    const botId = await createPublishedBot();
-    // Three real threads get mapped to this bot via startChat (thr_1..thr_3);
+  it("splits active vs archived threads and excludes threads that aren't this persona's own", async () => {
+    const personaId = await createPublishedPersona();
+    // Three real threads get mapped to this persona via startChat (thr_1..thr_3);
     // thr_999 stands in for some other plugin's thread that just happens to
     // come back from threads.list — it must never leak into either bucket.
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
 
@@ -422,24 +479,24 @@ describe("listChats", () => {
 
     const { chats, archivedChats } = (await host.harness.behavior.callRpc(
       "listChats",
-      { botId },
+      { personaId },
     )) as { chats: { threadId: string }[]; archivedChats: { threadId: string }[] };
     expect(chats.map((chat) => chat.threadId)).toEqual(["thr_1"]);
     expect(archivedChats.map((chat) => chat.threadId)).toEqual(["thr_2"]);
   });
 
   it("sorts pinned chats ahead of unpinned ones, then by updatedAt descending", async () => {
-    const botId = await createPublishedBot();
+    const personaId = await createPublishedPersona();
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
     await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     });
 
@@ -480,7 +537,7 @@ describe("listChats", () => {
     );
 
     const { chats } = (await host.harness.behavior.callRpc("listChats", {
-      botId,
+      personaId,
     })) as { chats: { threadId: string }[] };
     expect(chats.map((chat) => chat.threadId)).toEqual([
       "thr_3",
@@ -491,7 +548,7 @@ describe("listChats", () => {
 });
 
 describe("unarchiveChat", () => {
-  it("rejects a threadId that isn't one of this plugin's own bot threads", async () => {
+  it("rejects a threadId that isn't one of this plugin's own persona threads", async () => {
     await expect(
       host.harness.behavior.callRpc("unarchiveChat", {
         threadId: "thr_not_ours",
@@ -500,10 +557,10 @@ describe("unarchiveChat", () => {
     expect(host.harness.inspection.sdk.callsTo("threads.unarchive")).toHaveLength(0);
   });
 
-  it("unarchives a chat that belongs to this bot and announces the change", async () => {
-    const botId = await createPublishedBot();
+  it("unarchives a chat that belongs to this persona and announces the change", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
 
@@ -519,10 +576,10 @@ describe("unarchiveChat", () => {
 });
 
 describe("thread.archived event", () => {
-  it("announces but keeps the bot_threads mapping intact for our own threads", async () => {
-    const botId = await createPublishedBot();
+  it("announces but keeps the persona_threads mapping intact for our own threads", async () => {
+    const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
-      botId,
+      personaId,
       request: makeRequest(),
     })) as { threadId: string };
 
@@ -531,7 +588,7 @@ describe("thread.archived event", () => {
       thread: makeThreadResponse({ id: threadId }),
     });
 
-    // Still mapped: contributeInstructions must keep returning this bot's
+    // Still mapped: contributeInstructions must keep returning this persona's
     // persona once the thread is unarchived and resumed.
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toContain(
@@ -539,7 +596,7 @@ describe("thread.archived event", () => {
     );
     const row = host.bb.storage
       .database()
-      .prepare("SELECT thread_id FROM bot_threads WHERE thread_id = ?")
+      .prepare("SELECT thread_id FROM persona_threads WHERE thread_id = ?")
       .get(threadId);
     expect(row).toBeTruthy();
     expect(host.harness.inspection.realtimeSignals.length).toBeGreaterThan(
@@ -547,7 +604,7 @@ describe("thread.archived event", () => {
     );
   });
 
-  it("does not announce for a thread that isn't mapped to any of our bots", async () => {
+  it("does not announce for a thread that isn't mapped to any of our personas", async () => {
     const signalsBefore = host.harness.inspection.realtimeSignals.length;
     await host.harness.behavior.emitThreadEvent("thread.archived", {
       thread: makeThreadResponse({ id: "thr_not_ours" }),

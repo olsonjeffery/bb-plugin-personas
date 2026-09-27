@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "@/server";
 
-export type BotsRpc = ReturnType<typeof useBotsRpc>;
+export type PersonasRpc = ReturnType<typeof usePersonasRpc>;
 
-export function useBotsRpc() {
+export function usePersonasRpc() {
   return useRpc<typeof rpcContract>();
 }
 
@@ -16,7 +16,7 @@ interface QueryState<T> {
 
 /**
  * Loads once per `key` change and again whenever the backend publishes a
- * "bots" realtime signal, so a second window stays in sync.
+ * "personas" realtime signal, so a second window stays in sync.
  */
 export function useQuery<T>(
   load: () => Promise<T>,
@@ -33,7 +33,7 @@ export function useQuery<T>(
     setNonce((current) => current + 1);
   }, []);
 
-  useRealtime("bots", reload);
+  useRealtime("personas", reload);
 
   useEffect(() => {
     let cancelled = false;

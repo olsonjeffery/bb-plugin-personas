@@ -2,10 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import { EMOJIS } from "./bots";
+import { EMOJIS } from "./personas";
 
-const BOT_WITH_CHATS = {
-  id: "bot_1",
+const PERSONA_WITH_CHATS = {
+  id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
   instructions: "Always answer in pirate speak.",
@@ -18,11 +18,11 @@ const BOT_WITH_CHATS = {
   updatedAt: 100,
 };
 
-const BOT_NO_CHATS = {
-  id: "bot_2",
+const PERSONA_NO_CHATS = {
+  id: "persona_2",
   name: "Builder",
   emoji: "🤖",
-  instructions: "Fix the bot builder UX. ".repeat(20),
+  instructions: "Fix the persona builder UX. ".repeat(20),
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium" as const,
@@ -32,8 +32,8 @@ const BOT_NO_CHATS = {
   updatedAt: 50,
 };
 
-const BOT_DRAFT = {
-  id: "bot_3",
+const PERSONA_DRAFT = {
+  id: "persona_3",
   name: "",
   emoji: "🧪",
   instructions: "",
@@ -46,8 +46,8 @@ const BOT_DRAFT = {
   updatedAt: 10,
 };
 
-const BOT_NAMED_DRAFT = {
-  id: "bot_4",
+const PERSONA_NAMED_DRAFT = {
+  id: "persona_4",
   name: "Switcher",
   emoji: "🧪",
   instructions: "",
@@ -60,36 +60,36 @@ const BOT_NAMED_DRAFT = {
   updatedAt: 10,
 };
 
-const RAIL_BOTS = [
+const RAIL_PERSONAS = [
   {
-    ...BOT_WITH_CHATS,
+    ...PERSONA_WITH_CHATS,
     chats: [
       { threadId: "thr_new", title: "Ahoy there", status: "active", updatedAt: 200 },
     ],
     lastActivityAt: 200,
   },
-  { ...BOT_NO_CHATS, chats: [], lastActivityAt: BOT_NO_CHATS.updatedAt },
-  { ...BOT_DRAFT, chats: [], lastActivityAt: BOT_DRAFT.updatedAt },
+  { ...PERSONA_NO_CHATS, chats: [], lastActivityAt: PERSONA_NO_CHATS.updatedAt },
+  { ...PERSONA_DRAFT, chats: [], lastActivityAt: PERSONA_DRAFT.updatedAt },
 ];
 
-const BOTS_BY_ID: Record<
+const PERSONAS_BY_ID: Record<
   string,
-  typeof BOT_WITH_CHATS | typeof BOT_NO_CHATS | typeof BOT_DRAFT
+  typeof PERSONA_WITH_CHATS | typeof PERSONA_NO_CHATS | typeof PERSONA_DRAFT
 > = {
-  bot_1: BOT_WITH_CHATS,
-  bot_2: BOT_NO_CHATS,
-  bot_3: BOT_DRAFT,
+  persona_1: PERSONA_WITH_CHATS,
+  persona_2: PERSONA_NO_CHATS,
+  persona_3: PERSONA_DRAFT,
 };
 
 const RPC = {
-  listRail: () => ({ bots: RAIL_BOTS }),
-  getBot: (input: unknown) => {
-    const { botId } = input as { botId: string };
-    return { bot: BOTS_BY_ID[botId] ?? null };
+  listRail: () => ({ personas: RAIL_PERSONAS }),
+  getPersona: (input: unknown) => {
+    const { personaId } = input as { personaId: string };
+    return { persona: PERSONAS_BY_ID[personaId] ?? null };
   },
   listChats: (input: unknown) => {
-    const { botId } = input as { botId: string };
-    if (botId === "bot_1") {
+    const { personaId } = input as { personaId: string };
+    if (personaId === "persona_1") {
       return {
         chats: [
           {
@@ -125,10 +125,10 @@ const RPC = {
     ],
   }),
   startChat: () => ({ threadId: "thr_from_home" }),
-  createBot: () => ({ botId: "bot_new" }),
-  saveBot: () => ({ ok: true }),
-  publishBot: () => ({ ok: true }),
-  deleteBot: () => ({ ok: true }),
+  createPersona: () => ({ personaId: "persona_new" }),
+  savePersona: () => ({ ok: true }),
+  publishPersona: () => ({ ok: true }),
+  deletePersona: () => ({ ok: true }),
 };
 
 async function loadPanel() {
@@ -138,19 +138,19 @@ async function loadPanel() {
   return panel!;
 }
 
-describe("bots nav panel", () => {
+describe("personas nav panel", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("registers one panel at the bots path", async () => {
+  it("registers one panel at the personas path", async () => {
     const panel = await loadPanel();
-    expect(panel.id).toBe("bots");
-    expect(panel.path).toBe("bots");
-    expect(panel.title).toBe("Bots");
+    expect(panel.id).toBe("personas");
+    expect(panel.path).toBe("personas");
+    expect(panel.title).toBe("Personas");
   });
 
-  it("renders the rail with bots, marking drafts with a DRAFT badge", async () => {
+  it("renders the rail with personas, marking drafts with a DRAFT badge", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "" }, { rpc: RPC });
     await slot.findByText("Pirate");
@@ -159,53 +159,53 @@ describe("bots nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("navigates to a bot when its rail row is clicked", async () => {
+  it("navigates to a persona when its rail row is clicked", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "" }, { rpc: RPC });
     (await slot.findByText("Builder")).click();
     expect(slot.inspection.navigateCalls).toContainEqual({
       method: "toPluginPanel",
-      path: "bots",
-      options: { subPath: "bot_2" },
+      path: "personas",
+      options: { subPath: "persona_2" },
     });
     slot.lifecycle.unmount();
   });
 
-  it("creates a bot from the rail's new-bot button and routes to its editor", async () => {
+  it("creates a persona from the rail's new-persona button and routes to its editor", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "" }, { rpc: RPC });
-    (await slot.findByLabelText("New bot")).click();
+    (await slot.findByLabelText("New persona")).click();
 
     await waitFor(() =>
       expect(slot.inspection.navigateCalls).toContainEqual({
         method: "toPluginPanel",
-        path: "bots",
-        options: { subPath: "bot_new/edit" },
+        path: "personas",
+        options: { subPath: "persona_new/edit" },
       }),
     );
     const createCall = slot.inspection.rpcCalls.find(
-      (call) => call.method === "createBot",
+      (call) => call.method === "createPersona",
     );
     expect(createCall?.input).toBeNull();
     slot.lifecycle.unmount();
   });
 
-  it("shows the composer for a bot with chats instead of redirecting into the newest one", async () => {
+  it("shows the composer for a persona with chats instead of redirecting into the newest one", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
 
     await slot.findByTestId("bb-new-thread-composer");
     expect(slot.inspection.navigateCalls).toEqual([]);
     slot.lifecycle.unmount();
   });
 
-  it("renders the chat list inside the bot page and navigates to a chat on click", async () => {
+  it("renders the chat list inside the persona page and navigates to a chat on click", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
 
     await slot.findByText("Chats (1)");
     // "Ahoy there" also appears as the rail row's newest-chat preview, so
-    // pick out the one that lives inside the bot page's chat list.
+    // pick out the one that lives inside the persona page's chat list.
     const chatRowLabel = (await slot.findAllByText("Ahoy there")).find(
       (node) => node.closest("ul.divide-y") !== null,
     );
@@ -214,8 +214,8 @@ describe("bots nav panel", () => {
 
     expect(slot.inspection.navigateCalls).toContainEqual({
       method: "toPluginPanel",
-      path: "bots",
-      options: { subPath: "bot_1/thr_new" },
+      path: "personas",
+      options: { subPath: "persona_1/thr_new" },
     });
     slot.lifecycle.unmount();
   });
@@ -227,7 +227,7 @@ describe("bots nav panel", () => {
     await slot.findByText("Pirate");
     expect(slot.queryByLabelText("Expand chats")).toBeNull();
     expect(slot.queryByLabelText("Collapse chats")).toBeNull();
-    // "Ahoy there" is the newest-chat preview on the bot's own row; a nested
+    // "Ahoy there" is the newest-chat preview on the persona's own row; a nested
     // chat row used to duplicate it directly underneath.
     expect(slot.getAllByText("Ahoy there")).toHaveLength(1);
     slot.lifecycle.unmount();
@@ -241,9 +241,9 @@ describe("bots nav panel", () => {
   // item.focus() (which fires the trigger's blur with relatedTarget set to
   // the item), then item.click() — so it fails under the old handler and
   // passes only because the container-level blur now checks relatedTarget.
-  it("fires New chat and Edit bot from the ⋯ menu despite the trigger losing focus to the item", async () => {
+  it("fires New chat and Edit persona from the ⋯ menu despite the trigger losing focus to the item", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     menuButton.focus();
@@ -255,34 +255,34 @@ describe("bots nav panel", () => {
 
     expect(slot.inspection.navigateCalls).toContainEqual({
       method: "toPluginPanel",
-      path: "bots",
-      options: { subPath: "bot_2/new" },
+      path: "personas",
+      options: { subPath: "persona_2/new" },
     });
 
     const reopened = await slot.findByLabelText("More actions");
     reopened.focus();
     reopened.click();
-    const editBotItem = await slot.findByText("Edit bot");
-    fireEvent.focusOut(reopened, { relatedTarget: editBotItem });
-    expect(editBotItem.isConnected).toBe(true);
-    editBotItem.click();
+    const editPersonaItem = await slot.findByText("Edit persona");
+    fireEvent.focusOut(reopened, { relatedTarget: editPersonaItem });
+    expect(editPersonaItem.isConnected).toBe(true);
+    editPersonaItem.click();
 
     expect(slot.inspection.navigateCalls).toContainEqual({
       method: "toPluginPanel",
-      path: "bots",
-      options: { subPath: "bot_2/edit" },
+      path: "personas",
+      options: { subPath: "persona_2/edit" },
     });
     slot.lifecycle.unmount();
   });
 
-  it("opens the ⋯ menu, confirms Delete bot, and calls deleteBot", async () => {
+  it("opens the ⋯ menu, confirms Delete persona, and calls deletePersona", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     menuButton.focus();
     menuButton.click();
-    const deleteItem = await slot.findByText("Delete bot");
+    const deleteItem = await slot.findByText("Delete persona");
 
     // The bug this pins: focus leaves the trigger for the menu item on
     // mousedown, and the old handler closed the menu right then — unmounting
@@ -298,14 +298,14 @@ describe("bots nav panel", () => {
 
     await waitFor(() => {
       const deleteCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "deleteBot",
+        (call) => call.method === "deletePersona",
       );
-      expect(deleteCall?.input).toEqual({ botId: "bot_2" });
+      expect(deleteCall?.input).toEqual({ personaId: "persona_2" });
     });
     await waitFor(() =>
       expect(slot.inspection.navigateCalls).toContainEqual({
         method: "toPluginPanel",
-        path: "bots",
+        path: "personas",
         options: { subPath: "", replace: true },
       }),
     );
@@ -314,7 +314,7 @@ describe("bots nav panel", () => {
 
   it("clamps instructions with a working Show more / Show less toggle", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
 
     const showMore = await slot.findByRole("button", { name: "Show more" });
     showMore.click();
@@ -322,21 +322,21 @@ describe("bots nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("renders the header subtitle only when the bot has provider, model, or reasoning to show", async () => {
+  it("renders the header subtitle only when the persona has provider, model, or reasoning to show", async () => {
     const panel = await loadPanel();
-    const configured = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const configured = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
     const configuredHeader = (
-      await configured.findByLabelText("Edit bot settings")
+      await configured.findByLabelText("Edit persona settings")
     ).parentElement!;
     expect(configuredHeader.textContent).toContain("codex · gpt-5.5 · medium");
     configured.lifecycle.unmount();
 
-    // bot_3 is a draft with an empty providerId, an empty model, and a null
+    // persona_3 is a draft with an empty providerId, an empty model, and a null
     // reasoningLevel, so the joined subtitle must collapse away entirely
     // rather than rendering the separators around missing parts.
-    const draft = renderSlot(panel, { subPath: "bot_3" }, { rpc: RPC });
+    const draft = renderSlot(panel, { subPath: "persona_3" }, { rpc: RPC });
     const draftHeader = (
-      await draft.findByLabelText("Edit bot settings")
+      await draft.findByLabelText("Edit persona settings")
     ).parentElement!;
     expect(draftHeader.textContent).not.toContain("·");
     draft.lifecycle.unmount();
@@ -344,7 +344,7 @@ describe("bots nav panel", () => {
 
   it("exposes the ⋯ menu as an ARIA menu, with aria-expanded tracking open state", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     expect(menuButton.getAttribute("aria-haspopup")).toBe("menu");
@@ -357,38 +357,38 @@ describe("bots nav panel", () => {
     expect(menuButton.getAttribute("aria-expanded")).toBe("true");
     expect(
       slot.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["New chat", "Edit bot", "Delete bot"]);
+    ).toEqual(["New chat", "Edit persona", "Delete persona"]);
 
     slot.lifecycle.unmount();
   });
 
   it("confirms before deleting a draft from the editor", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_3/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
 
     (await slot.findByText("Delete draft")).click();
     expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "deleteBot"),
+      slot.inspection.rpcCalls.some((call) => call.method === "deletePersona"),
     ).toBe(false);
 
-    await slot.findByText("Delete Untitled bot?");
+    await slot.findByText("Delete Untitled persona?");
     (await slot.findByRole("button", { name: "Cancel" })).click();
     await waitFor(() =>
-      expect(slot.queryByText("Delete Untitled bot?")).toBeNull(),
+      expect(slot.queryByText("Delete Untitled persona?")).toBeNull(),
     );
     expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "deleteBot"),
+      slot.inspection.rpcCalls.some((call) => call.method === "deletePersona"),
     ).toBe(false);
 
     (await slot.findByText("Delete draft")).click();
-    await slot.findByText("Delete Untitled bot?");
+    await slot.findByText("Delete Untitled persona?");
     (await slot.findByRole("button", { name: "Delete" })).click();
 
     await waitFor(() => {
       const deleteCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "deleteBot",
+        (call) => call.method === "deletePersona",
       );
-      expect(deleteCall?.input).toEqual({ botId: "bot_3" });
+      expect(deleteCall?.input).toEqual({ personaId: "persona_3" });
     });
     slot.lifecycle.unmount();
   });
@@ -402,11 +402,11 @@ describe("bots nav panel", () => {
     const panel = await loadPanel();
     const slot = renderSlot(
       panel,
-      { subPath: "bot_4/edit" },
+      { subPath: "persona_4/edit" },
       {
         rpc: {
           ...RPC,
-          getBot: () => ({ bot: BOT_NAMED_DRAFT }),
+          getPersona: () => ({ persona: PERSONA_NAMED_DRAFT }),
           listOptions: () => ({
             providers: [
               { id: "codex", displayName: "Codex", available: true },
@@ -435,25 +435,25 @@ describe("bots nav panel", () => {
       expect(slot.getByLabelText("Model").textContent).toBe("Select a model"),
     );
     expect(
-      slot.getByText("Publish bot").closest("button")!.disabled,
+      slot.getByText("Publish persona").closest("button")!.disabled,
     ).toBe(true);
 
     slot.lifecycle.unmount();
   });
 
-  it("shows a setup callout instead of a composer for a draft bot", async () => {
+  it("shows a setup callout instead of a composer for a draft persona", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_3" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_3" }, { rpc: RPC });
 
-    await slot.findByText("Finish setting up this bot");
+    await slot.findByText("Finish setting up this persona");
     await slot.findByText("Set up →");
     expect(slot.queryByTestId("bb-new-thread-composer")).toBeNull();
     slot.lifecycle.unmount();
   });
 
-  it("seeds the host new-thread composer and starts a chat from BotHome", async () => {
+  it("seeds the host new-thread composer and starts a chat from PersonaHome", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
 
     const composer = await slot.findByTestId("bb-new-thread-composer");
     expect(composer.getAttribute("data-default-provider-id")).toBe("codex");
@@ -467,15 +467,15 @@ describe("bots nav panel", () => {
     await waitFor(() =>
       expect(slot.inspection.navigateCalls).toContainEqual({
         method: "toPluginPanel",
-        path: "bots",
-        options: { subPath: "bot_2/thr_from_home" },
+        path: "personas",
+        options: { subPath: "persona_2/thr_from_home" },
       }),
     );
     const startChatCall = slot.inspection.rpcCalls.find(
       (call) => call.method === "startChat",
     );
     expect(startChatCall?.input).toMatchObject({
-      botId: "bot_2",
+      personaId: "persona_2",
       request: { providerId: "codex", model: "gpt-5.5" },
     });
     slot.lifecycle.unmount();
@@ -483,10 +483,10 @@ describe("bots nav panel", () => {
 
   it("opens the emoji picker from the avatar and swaps the icon", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
-    // bot_1's seeded emoji is "🏴‍☠️"; pick a different curated emoji from the
-    // grid. "🦉" isn't used by any bot in RAIL_BOTS, so it can't collide with
+    // persona_1's seeded emoji is "🏴‍☠️"; pick a different curated emoji from the
+    // grid. "🦉" isn't used by any persona in RAIL_PERSONAS, so it can't collide with
     // an avatar rendered in the rail alongside the editor.
     const trigger = await slot.findByLabelText("Change icon");
     expect(slot.queryByText("Choose an icon")).toBeNull();
@@ -507,7 +507,7 @@ describe("bots nav panel", () => {
 
   it("autosaves a picked emoji as an emoji patch after the debounce", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
     const trigger = await slot.findByLabelText("Change icon");
     fireEvent.click(trigger);
@@ -524,10 +524,10 @@ describe("bots nav panel", () => {
       await vi.advanceTimersByTimeAsync(600);
 
       const saveCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "saveBot",
+        (call) => call.method === "savePersona",
       );
       expect(saveCall?.input).toMatchObject({
-        botId: "bot_1",
+        personaId: "persona_1",
         patch: { emoji: "🦉" },
       });
     } finally {
@@ -539,7 +539,7 @@ describe("bots nav panel", () => {
 
   it("auto-applies a single emoji typed into the custom field without clicking Use, and autosaves it as an emoji patch", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
     const trigger = await slot.findByLabelText("Change icon");
     fireEvent.click(trigger);
@@ -557,10 +557,10 @@ describe("bots nav panel", () => {
       await vi.advanceTimersByTimeAsync(600);
 
       const saveCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "saveBot",
+        (call) => call.method === "savePersona",
       );
       expect(saveCall?.input).toMatchObject({
-        botId: "bot_1",
+        personaId: "persona_1",
         patch: { emoji: "🦉" },
       });
     } finally {
@@ -572,7 +572,7 @@ describe("bots nav panel", () => {
 
   it("still has a working Shuffle icon button that lands on a curated emoji", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
     await slot.findByLabelText("Change icon");
     const shuffle = await slot.findByText("Shuffle icon");
@@ -595,8 +595,8 @@ describe("bots nav panel", () => {
   const CHAT_ROW_RPC = {
     ...RPC,
     listChats: (input: unknown) => {
-      const { botId } = input as { botId: string };
-      if (botId !== "bot_1") return { chats: [], archivedChats: [] };
+      const { personaId } = input as { personaId: string };
+      if (personaId !== "persona_1") return { chats: [], archivedChats: [] };
       return {
         chats: [
           {
@@ -624,7 +624,7 @@ describe("bots nav panel", () => {
 
   it("fires Pin from a chat row's ⋯ menu despite the trigger losing focus to the item", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     // Two "More actions" triggers exist on this page (the header's and the
@@ -635,7 +635,7 @@ describe("bots nav panel", () => {
     menuButton.click();
     const pinItem = await slot.findByText("Pin");
 
-    // Same regression as the bot-header menu: the click must survive the
+    // Same regression as the persona-header menu: the click must survive the
     // trigger's blur firing first.
     fireEvent.focusOut(menuButton, { relatedTarget: pinItem });
     expect(pinItem.isConnected).toBe(true);
@@ -653,7 +653,7 @@ describe("bots nav panel", () => {
 
   it("renames a chat inline: Enter commits the trimmed title, Escape cancels, and an unchanged/empty value fires nothing", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButtons = await slot.findAllByLabelText("More actions");
@@ -716,7 +716,7 @@ describe("bots nav panel", () => {
     // the invalid-HTML nesting or the real-browser inertness that causes,
     // so this is the assertion that would actually have caught it.
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -740,7 +740,7 @@ describe("bots nav panel", () => {
 
   it("calls archive with the chat's threadId from the ⋯ menu", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -762,7 +762,7 @@ describe("bots nav panel", () => {
 
   it("calls requestDelete (BB's own confirmation) rather than opening a local dialog", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -786,7 +786,7 @@ describe("bots nav panel", () => {
 
   it("hides the Archived section when there are no archived chats", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
 
     await slot.findByText("Chats (1)");
     expect(slot.queryByText(/^Archived/)).toBeNull();
@@ -795,7 +795,7 @@ describe("bots nav panel", () => {
 
   it("renders the Archived section collapsed by default and shows its rows (with Unarchive/Delete only) once expanded", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Archived (1)");
     expect(slot.queryByText("Buried treasure")).toBeNull();
@@ -818,7 +818,7 @@ describe("bots nav panel", () => {
 
   it("calls the unarchiveChat RPC from an archived row's menu", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "bot_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Archived (1)");
     fireEvent.click(slot.getByText("Archived (1)"));

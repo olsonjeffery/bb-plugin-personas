@@ -1,22 +1,22 @@
-// bb-plugin-bots — frontend entry.
+// bb-plugin-personas — frontend entry.
 //
-// A persistent left rail of bots (BotRail) beside a content pane. The chat
+// A persistent left rail of personas (PersonaRail) beside a content pane. The chat
 // pane is BB's own ThreadChat component, so this plugin never reimplements a
 // composer or a timeline.
 import { useEffect, useState, type ReactNode } from "react";
 import { definePluginApp, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import type { PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { parseRoute } from "@/bots";
-import { BotChatView } from "@/components/BotChatView";
-import { BotEditor } from "@/components/BotEditor";
-import { BotHome } from "@/components/BotHome";
-import { BotRail } from "@/components/BotRail";
+import { parseRoute } from "@/personas";
+import { PersonaChatView } from "@/components/PersonaChatView";
+import { PersonaEditor } from "@/components/PersonaEditor";
+import { PersonaHome } from "@/components/PersonaHome";
+import { PersonaRail } from "@/components/PersonaRail";
 import { PANEL_PATH } from "@/components/panel-path";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { Icon } from "@/components/ui/icon";
-import { useBotsRpc } from "@/components/use-query";
+import { usePersonasRpc } from "@/components/use-query";
 
 /** A document-style pane (root empty state, transient create, the editor). */
 function DocumentPane({
@@ -47,24 +47,24 @@ function DocumentPane({
   );
 }
 
-function BotsPanel({ subPath }: PluginNavPanelProps) {
+function PersonasPanel({ subPath }: PluginNavPanelProps) {
   const route = parseRoute(subPath);
-  const rpc = useBotsRpc();
+  const rpc = usePersonasRpc();
   const navigate = useBbNavigate();
   const isCompact = useIsCompactViewport();
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
 
   // "new" is a transient route, not a real screen: create a draft row
-  // immediately and replace-navigate into its editor. BotEditor's `botId`
+  // immediately and replace-navigate into its editor. PersonaEditor's `personaId`
   // prop is non-null, so nothing here ever mounts it without a real id.
   useEffect(() => {
     if (route.view !== "new" || isCreatingDraft) return;
     setIsCreatingDraft(true);
     rpc
-      .call("createBot", null)
+      .call("createPersona", null)
       .then((created) => {
         navigate.toPluginPanel(PANEL_PATH, {
-          subPath: `${created.botId}/edit`,
+          subPath: `${created.personaId}/edit`,
           replace: true,
         });
       })
@@ -76,8 +76,8 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.view]);
 
-  const selectedBotId =
-    route.view === "list" || route.view === "new" ? null : route.botId;
+  const selectedPersonaId =
+    route.view === "list" || route.view === "new" ? null : route.personaId;
   const goToRoot = () => navigate.toPluginPanel(PANEL_PATH, { subPath: "" });
   const onBack = isCompact ? goToRoot : undefined;
 
@@ -87,7 +87,7 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
       content = (
         <DocumentPane>
           <p className="p-6 text-center text-sm text-muted-foreground">
-            Pick a bot to get started.
+            Pick a persona to get started.
           </p>
         </DocumentPane>
       );
@@ -96,7 +96,7 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
       content = (
         <DocumentPane>
           <p className="p-6 text-center text-sm text-muted-foreground">
-            Setting up your bot…
+            Setting up your persona…
           </p>
         </DocumentPane>
       );
@@ -104,18 +104,18 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
     case "edit":
       content = (
         <DocumentPane onBack={onBack}>
-          <BotEditor botId={route.botId} />
+          <PersonaEditor personaId={route.personaId} />
         </DocumentPane>
       );
       break;
-    case "bot":
+    case "persona":
     case "newChat":
-      content = <BotHome botId={route.botId} onBack={onBack} />;
+      content = <PersonaHome personaId={route.personaId} onBack={onBack} />;
       break;
     case "chat":
       content = (
-        <BotChatView
-          botId={route.botId}
+        <PersonaChatView
+          personaId={route.personaId}
           threadId={route.threadId}
           onBack={onBack}
         />
@@ -124,14 +124,14 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
   }
 
   // One pane at a time on a compact viewport: the rail alone at the root,
-  // the content pane alone (with its own back affordance) once a bot is
+  // the content pane alone (with its own back affordance) once a persona is
   // selected. Both panes own their own scrolling, so neither can produce a
   // double scrollbar.
   if (isCompact) {
     return (
       <div className="h-full min-h-0">
-        {selectedBotId === null && route.view !== "new" ? (
-          <BotRail selectedBotId={null} />
+        {selectedPersonaId === null && route.view !== "new" ? (
+          <PersonaRail selectedPersonaId={null} />
         ) : (
           content
         )}
@@ -141,7 +141,7 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
 
   return (
     <div className="flex h-full min-h-0">
-      <BotRail selectedBotId={selectedBotId} />
+      <PersonaRail selectedPersonaId={selectedPersonaId} />
       <div className="min-h-0 flex-1">{content}</div>
     </div>
   );
@@ -149,10 +149,10 @@ function BotsPanel({ subPath }: PluginNavPanelProps) {
 
 export default definePluginApp((app) => {
   app.slots.navPanel({
-    id: "bots",
-    title: "Bots",
+    id: "personas",
+    title: "Personas",
     icon: "Bot",
     path: PANEL_PATH,
-    component: BotsPanel,
+    component: PersonasPanel,
   });
 });
