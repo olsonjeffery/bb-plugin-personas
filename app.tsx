@@ -158,9 +158,9 @@ export default definePluginApp((app) => {
   });
 
   // The Personas settings page: a Plugin health box listing the other
-  // plugins this one cooperates with (currently Floating Notes), with a
-  // green check when one is installed and enabled and an install link to
-  // its bb plugin page while it is missing.
+  // plugins this one cooperates with (currently Floating Notes and the
+  // official Docs plugin), with a green check when one is installed and
+  // enabled and an install link to its bb plugin page while it is missing.
   app.slots.settingsSection({
     id: "plugin-health",
     title: "Plugin health",

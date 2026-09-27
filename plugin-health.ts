@@ -11,6 +11,20 @@ export const FLOATING_NOTES_PLUGIN_URL =
   "https://github.com/vburojevic/bb-plugin-floating-notes";
 
 /**
+ * The installed-plugin id of BB's official Docs plugin. The product is named
+ * Docs, but the id stays "simple-notes" for compatibility with existing
+ * settings and stored vaults.
+ */
+export const DOCS_PLUGIN_ID = "simple-notes";
+
+/**
+ * Where to send someone who still needs the official Docs plugin: its page
+ * in the get-bb/bb repository it ships from.
+ */
+export const DOCS_PLUGIN_URL =
+  "https://github.com/get-bb/bb/tree/main/plugins/docs";
+
+/**
  * The fields of one `bb.sdk.plugins.list()` row the health computation
  * reads. Only the fields we use — the real InstalledPlugin carries many
  * more, and mirroring it here would make the whole list response a contract.
@@ -109,7 +123,7 @@ export function isFloatingNotesAvailable(
 
 /**
  * The full health report the settings page shows: one row per cooperating
- * plugin, ordered by the TOOL list above so later entries just append.
+ * plugin, Floating Notes first; later entries just append.
  */
 export function pluginHealth(
   plugins: readonly InstalledPluginSummary[],
@@ -120,8 +134,14 @@ export function pluginHealth(
     installUrl: FLOATING_NOTES_PLUGIN_URL,
     plugin: plugins.find((plugin) => plugin.id === FLOATING_NOTES_PLUGIN_ID),
   });
+  const docs = toToolHealth({
+    id: DOCS_PLUGIN_ID,
+    label: "Docs",
+    installUrl: DOCS_PLUGIN_URL,
+    plugin: plugins.find((plugin) => plugin.id === DOCS_PLUGIN_ID),
+  });
   return {
     floatingNotesAvailable: floatingNotes.available,
-    tools: [floatingNotes],
+    tools: [floatingNotes, docs],
   };
 }

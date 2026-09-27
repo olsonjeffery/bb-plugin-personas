@@ -3,6 +3,8 @@
 // (one fresh plugins.list read per call) is covered in server.test.ts.
 import { describe, expect, it } from "vitest";
 import {
+  DOCS_PLUGIN_ID,
+  DOCS_PLUGIN_URL,
   FLOATING_NOTES_PLUGIN_ID,
   FLOATING_NOTES_PLUGIN_URL,
   isFloatingNotesAvailable,
@@ -71,5 +73,50 @@ describe("pluginHealth", () => {
     const present = pluginHealth([makePlugin({})]).tools[0]!;
     expect(present.installUrl).toBeNull();
     expect(present.installed).toBe(true);
+  });
+});
+
+describe("pluginHealth docs row", () => {
+  // Docs is official and ships with bb, so an absent row is unusual but the
+  // same rule as Floating Notes applies — present, enabled, no hard failure.
+  it("is available when Docs is installed, enabled, and running", () => {
+    const docs = pluginHealth([makePlugin({ id: DOCS_PLUGIN_ID })]).tools[1]!;
+    expect(docs).toMatchObject({
+      id: DOCS_PLUGIN_ID,
+      label: "Docs",
+      installed: true,
+      enabled: true,
+      available: true,
+      installUrl: null,
+    });
+  });
+
+  it("carries the official plugin page link only while Docs is missing", () => {
+    const docs = pluginHealth([]).tools[1]!;
+    expect(docs).toMatchObject({
+      id: DOCS_PLUGIN_ID,
+      label: "Docs",
+      installed: false,
+      available: false,
+      installUrl: DOCS_PLUGIN_URL,
+    });
+
+    const present = pluginHealth([makePlugin({ id: DOCS_PLUGIN_ID })])
+      .tools[1]!;
+    expect(present.installUrl).toBeNull();
+    expect(present.installed).toBe(true);
+  });
+
+  it("is unavailable when Docs is installed but disabled", () => {
+    const docs = pluginHealth([
+      makePlugin({ id: DOCS_PLUGIN_ID, enabled: false, status: "disabled" }),
+    ]).tools[1]!;
+    expect(docs).toMatchObject({
+      installed: true,
+      enabled: false,
+      available: false,
+      // Installed, so no install link — enable it instead.
+      installUrl: null,
+    });
   });
 });
