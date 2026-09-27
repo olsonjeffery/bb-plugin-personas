@@ -125,6 +125,18 @@ and find them in the sidebar like any other BB conversation.
 Deleting a persona does not delete its existing chats. Those chats stay available,
 but they no longer receive that persona's instructions.
 
+## Settings
+
+**Settings → Installed plugins → Personas** includes a **Plugin health** section:
+one row for each cooperating plugin Personas can use, currently:
+
+- **Floating Notes** — a green check when it is installed and enabled, a red X
+  when it is not. While it is missing, the row links to its plugin page
+  ([vburojevic/bb-plugin-floating-notes](https://github.com/vburojevic/bb-plugin-floating-notes)).
+
+The rows read the installed-plugin list fresh on every visit, so installing,
+enabling, or disabling a plugin is reflected the next time the page opens.
+
 ## Development
 
 ```sh

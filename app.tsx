@@ -12,6 +12,7 @@ import { PersonaChatView } from "@/components/PersonaChatView";
 import { PersonaEditor } from "@/components/PersonaEditor";
 import { PersonaHome } from "@/components/PersonaHome";
 import { PersonaRail } from "@/components/PersonaRail";
+import { PluginHealthSection } from "@/components/PluginHealthSection";
 import { PANEL_PATH } from "@/components/panel-path";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@/components/ui/coarse-pointer-sizing";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
@@ -154,5 +155,16 @@ export default definePluginApp((app) => {
     icon: "personas/speaking",
     path: PANEL_PATH,
     component: PersonasPanel,
+  });
+
+  // The Personas settings page: a Plugin health box listing the other
+  // plugins this one cooperates with (currently Floating Notes), with a
+  // green check when one is installed and enabled and an install link to
+  // its bb plugin page while it is missing.
+  app.slots.settingsSection({
+    id: "plugin-health",
+    title: "Plugin health",
+    description: "Other plugins Personas can work with.",
+    component: PluginHealthSection,
   });
 });

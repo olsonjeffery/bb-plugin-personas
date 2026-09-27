@@ -18,6 +18,7 @@ import {
   type Persona,
   type PersonaRow,
 } from "./personas.js";
+import { pluginHealth } from "./plugin-health.js";
 
 const ReasoningLevel = z.enum([
   "none",
@@ -70,6 +71,19 @@ const ChatSchema = z.object({
   // false, so the frontend can tell "never pinned" from "pinned at epoch 0".
   pinnedAt: z.number().int().nullable(),
   archivedAt: z.number().int().nullable(),
+});
+
+// One Plugin health box row (plugin-health.ts's ToolHealth, at the RPC
+// boundary where the wire shape has to be spelled out in zod anyway).
+const ToolHealthSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  installed: z.boolean(),
+  enabled: z.boolean(),
+  status: z.string().nullable(),
+  version: z.string().nullable(),
+  installUrl: z.string().nullable(),
+  available: z.boolean(),
 });
 
 // Mirrors the host's `promptInputSchema` (bb-plugin-sdk-app.d.ts) exactly.
@@ -213,6 +227,13 @@ export const rpcContract = defineRpcContract({
           reasoningEfforts: z.array(ReasoningLevel),
         }),
       ),
+    }),
+  },
+  getPluginHealth: {
+    input: z.null(),
+    output: z.object({
+      floatingNotesAvailable: z.boolean(),
+      tools: z.array(ToolHealthSchema),
     }),
   },
 });
@@ -642,6 +663,15 @@ export default async function plugin(bb: BbPluginApi) {
           ),
         })),
       };
+    },
+
+    // One fresh plugins.list read per call — installs, enables, disables, and
+    // removes change the answer, so it is never cached. The flag is also the
+    // server-side gate: other parts of this plugin call
+    // isFloatingNotesAvailable (plugin-health.ts) against the same list.
+    getPluginHealth: async () => {
+      const { plugins } = await bb.sdk.plugins.list();
+      return pluginHealth(plugins);
     },
   });
 
