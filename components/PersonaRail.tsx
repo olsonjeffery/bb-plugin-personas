@@ -8,7 +8,11 @@ import { PersonaAvatar } from "@/components/PersonaAvatar";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import { cn } from "@/lib/utils";
-import { displayName, previewInstructions } from "@/personas";
+import {
+  displayName,
+  joinedPromptText,
+  previewInstructions,
+} from "@/personas";
 
 const WIDTH_KEY = "personas:rail:width";
 const MIN_WIDTH = 220;
@@ -154,7 +158,7 @@ export function PersonaRail({ selectedPersonaId }: { selectedPersonaId: string |
               const newestChat = persona.chats[0];
               const secondary =
                 newestChat === undefined
-                  ? previewInstructions(persona.instructions)
+                  ? previewInstructions(joinedPromptText(persona.prompts))
                   : newestChat.title ?? "New chat";
 
               return (

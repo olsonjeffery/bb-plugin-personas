@@ -1,13 +1,35 @@
 ---
 name: personas
-description: "BB Personas settings and operating constraints: the Plugin health section, the Floating Notes availability flag, and how to develop the plugin."
+description: "BB Personas settings and operating constraints: the prompt pool, the Plugin health section, the Floating Notes availability flag, and how to develop the plugin."
 ---
 
 # Personas
 
-Personas gives each persona its own name, instructions, provider, model, and
-reasoning level. Persona chats are ordinary BB threads; each thread receives
-its persona's instructions on every turn.
+Personas gives each persona its own name, a pool of prompts, a provider, a
+model, and a reasoning level. Persona chats are ordinary BB threads; each
+thread receives the persona's joined prompt pool as instructions on every
+turn.
+
+## The prompt pool
+
+- A persona's standing instructions are prompts in its pool (the
+  `persona_prompts` SQLite table). Each prompt is tied to exactly one
+  persona; deleting the persona deletes its pool.
+- Prompt types are extensible (`PROMPT_TYPES` in `personas.ts`); `text` is
+  the only type so far, and any unrecognized stored type reads as `text`.
+- Each prompt holds up to 3500 characters (`MAX_PROMPT_TEXT`). Pool entries
+  in the editor display the first 24 characters plus an ellipsis on
+  overflow (`PROMPT_PREVIEW_LIMIT`).
+- One persona's pool never holds two prompts whose first 24 characters are
+  identical. The rule is enforced server-side in `addPersonaPrompt` /
+  `updatePersonaPrompt` and pre-checked in the editor; the same text on two
+  different personas is fine.
+- The joined pool text is injected into every turn of the persona's chats
+  (`renderPersonaInstructions`), clamped to BB's 4096-character
+  instruction-contribution limit when the pool outgrows it.
+- Databases from before the pool carry each persona's legacy single
+  `instructions` column into one text prompt on the next start — once per
+  persona, idempotent across restarts.
 
 ## Settings
 
@@ -34,7 +56,7 @@ section: one row per cooperating plugin this one can use.
   The server-side `floatingNotesAvailable` flag (`plugin-health.ts`) and the
   settings rows share this one rule.
 - Deleting a persona never deletes its chats; they just stop receiving the
-  persona's instructions.
+  persona's prompts.
 
 ## Development
 

@@ -22,7 +22,7 @@ import { ChatRow } from "@/components/ChatRow";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import { cn } from "@/lib/utils";
-import { displayName, draftBlockers, type Persona } from "@/personas";
+import { displayName, draftBlockers, joinedPromptText, type Persona } from "@/personas";
 
 /**
  * The content-pane header shared by PersonaHome and PersonaChatView. There's no
@@ -290,7 +290,7 @@ export function PersonaHome({
       />
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
         <div className="mx-auto w-full max-w-2xl space-y-5">
-          {persona.instructions.length === 0 ? null : (
+          {persona.prompts.length === 0 ? null : (
             <div className="rounded-lg border border-border bg-card p-3">
               {/* No `block` here: it also sets `display` and, sitting later in
                   the generated CSS at equal specificity, silently beats
@@ -302,7 +302,7 @@ export function PersonaHome({
                   instructionsExpanded ? "" : "line-clamp-3",
                 )}
               >
-                {persona.instructions}
+                {joinedPromptText(persona.prompts)}
               </span>
               <button
                 type="button"

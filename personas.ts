@@ -61,13 +61,40 @@ export interface Persona {
   id: string;
   name: string;
   emoji: string;
-  instructions: string;
+  /** The persona's prompt pool; injected into every turn of its chats. */
+  prompts: PersonaPrompt[];
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
   /** null = projectless chat in BB's personal project. */
   projectId: string | null;
   status: PersonaStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** The prompt types a pool entry can carry; "text" is the only one so far. */
+export const PROMPT_TYPES = ["text"] as const;
+
+export type PromptType = (typeof PROMPT_TYPES)[number];
+
+/**
+ * Per-prompt text budget. Same 3500 the old single-instructions field had, so
+ * one prompt can carry everything a pre-pool persona could.
+ */
+export const MAX_PROMPT_TEXT = MAX_INSTRUCTIONS;
+
+/** How much of a prompt's text a pool entry displays before its ellipsis. */
+export const PROMPT_PREVIEW_LIMIT = 24;
+
+/** One entry in a persona's prompt pool. Each prompt belongs to one persona. */
+export interface PersonaPrompt {
+  id: string;
+  personaId: string;
+  type: PromptType;
+  text: string;
+  /** Insertion order within the persona's pool; ties break on createdAt. */
+  position: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -156,14 +183,58 @@ export function newPersonaId(): string {
   return `persona_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
-export function clampInstructions(instructions: string): string {
-  return instructions.trim().slice(0, MAX_INSTRUCTIONS);
+export function newPromptId(): string {
+  return `prompt_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 }
 
-/** Single-line preview of a persona's instructions for list cards. */
+/** Trims and length-bounds a prompt's text for storage and transport. */
+export function clampPromptText(text: string): string {
+  return text.trim().slice(0, MAX_PROMPT_TEXT);
+}
+
+/**
+ * The pool-entry display: the first 24 characters, with an ellipsis only
+ * when the text actually overflows.
+ */
+export function promptPreview(text: string): string {
+  return text.length > PROMPT_PREVIEW_LIMIT
+    ? `${text.slice(0, PROMPT_PREVIEW_LIMIT)}…`
+    : text;
+}
+
+/**
+ * The uniqueness key the pool enforces: one persona can never hold two
+ * prompts whose first 24 characters are identical.
+ */
+export function promptConflictKey(text: string): string {
+  return clampPromptText(text).slice(0, PROMPT_PREVIEW_LIMIT);
+}
+
+/**
+ * True when `text` collides with any of `existing` on the first 24
+ * characters. Scope is a single persona's pool — the same text on two
+ * different personas is fine.
+ */
+export function hasPromptConflict(
+  existing: readonly string[],
+  text: string,
+): boolean {
+  const key = promptConflictKey(text);
+  return existing.some((candidate) => promptConflictKey(candidate) === key);
+}
+
+/** All of a persona's prompt texts joined into the block its chats receive. */
+export function joinedPromptText(prompts: readonly PersonaPrompt[]): string {
+  return prompts
+    .map((prompt) => prompt.text)
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+}
+
+/** Single-line preview of a persona's prompt pool for list cards. */
 export function previewInstructions(instructions: string): string {
   const collapsed = instructions.replace(/\s+/g, " ").trim();
-  return collapsed.length > 0 ? collapsed : "No instructions yet.";
+  return collapsed.length > 0 ? collapsed : "No prompts yet.";
 }
 
 /** The editor autosaves drafts with a blank name, so list cards need a fallback. */
@@ -186,10 +257,12 @@ export function draftBlockers(persona: Persona): string[] {
 
 /**
  * The persona block BB injects into every turn of a persona's threads. Kept under
- * INSTRUCTION_LIMIT by construction: MAX_INSTRUCTIONS plus this wrapper.
+ * INSTRUCTION_LIMIT by construction for a single max-length prompt (a wrapper
+ * plus MAX_PROMPT_TEXT); a fuller pool is clamped to the wrapper's leftover
+ * budget, with an ellipsis marking the cut.
  */
 export function renderPersonaInstructions(persona: Persona): string {
-  return [
+  const header = [
     `# Custom persona: ${persona.name}`,
     "",
     `You are running as a custom persona named "${persona.name}" that the user built.`,
@@ -199,9 +272,13 @@ export function renderPersonaInstructions(persona: Persona): string {
     "with a specific request the user makes later, follow the later request.",
     "",
     "<persona-instructions>",
-    persona.instructions,
-    "</persona-instructions>",
   ].join("\n");
+  const footer = "</persona-instructions>";
+  // The wrapper's own characters leave this much room for prompt text.
+  const budget = INSTRUCTION_LIMIT - header.length - footer.length - 2;
+  const body = joinedPromptText(persona.prompts);
+  const clamped = body.length > budget ? `${body.slice(0, budget - 1)}…` : body;
+  return `${header}\n${clamped}\n${footer}`;
 }
 
 export type Route =
@@ -261,6 +338,31 @@ export interface PersonaRow {
   updated_at: number;
 }
 
+/** A prompt-pool row as stored in SQLite (snake_case). */
+export interface PersonaPromptRow {
+  id: string;
+  persona_id: string;
+  type: string;
+  text: string;
+  position: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function rowToPrompt(row: PersonaPromptRow): PersonaPrompt {
+  return {
+    id: row.id,
+    personaId: row.persona_id,
+    // "text" is the only prompt type so far, so any stored value reads as
+    // one rather than flowing uncaught into the prompt RPCs' zod schemas.
+    type: "text",
+    text: row.text,
+    position: row.position,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 /** The subset of ChatSchema (server.ts) that sortChats needs to order a list. */
 export interface ChatSortable {
   pinnedAt: number | null;
@@ -283,12 +385,17 @@ export function sortChats<T extends ChatSortable>(chats: readonly T[]): T[] {
   });
 }
 
-export function rowToPersona(row: PersonaRow): Persona {
+/**
+ * Assembles a Persona from its own row plus its prompt rows. `prompts` is
+ * assigned by reference (not copied) so the server's prompt pool map and the
+ * persona object can never drift apart.
+ */
+export function rowToPersona(row: PersonaRow, prompts: PersonaPrompt[]): Persona {
   return {
     id: row.id,
     name: row.name,
     emoji: row.emoji,
-    instructions: row.instructions,
+    prompts,
     providerId: row.provider_id,
     model: row.model,
     // Any unrecognised stored value reads as unset rather than flowing

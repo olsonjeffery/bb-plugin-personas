@@ -8,7 +8,17 @@ const PERSONA_WITH_CHATS = {
   id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
-  instructions: "Always answer in pirate speak.",
+  prompts: [
+    {
+      id: "prompt_1",
+      personaId: "persona_1",
+      type: "text" as const,
+      text: "Always answer in pirate speak.",
+      position: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ],
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium" as const,
@@ -22,7 +32,17 @@ const PERSONA_NO_CHATS = {
   id: "persona_2",
   name: "Builder",
   emoji: "🤖",
-  instructions: "Fix the persona builder UX. ".repeat(20),
+  prompts: [
+    {
+      id: "prompt_2",
+      personaId: "persona_2",
+      type: "text" as const,
+      text: "Fix the persona builder UX. ".repeat(20),
+      position: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ],
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium" as const,
@@ -36,7 +56,7 @@ const PERSONA_DRAFT = {
   id: "persona_3",
   name: "",
   emoji: "🧪",
-  instructions: "",
+  prompts: [],
   providerId: "",
   model: "",
   reasoningLevel: null,
@@ -50,7 +70,7 @@ const PERSONA_NAMED_DRAFT = {
   id: "persona_4",
   name: "Switcher",
   emoji: "🧪",
-  instructions: "",
+  prompts: [],
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium" as const,
@@ -235,6 +255,19 @@ const RPC = {
   startChat: () => ({ threadId: "thr_from_home" }),
   createPersona: () => ({ personaId: "persona_new" }),
   savePersona: () => ({ ok: true }),
+  addPersonaPrompt: () => ({
+    prompt: {
+      id: "prompt_added",
+      personaId: "persona_1",
+      type: "text",
+      text: "Never break character.",
+      position: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  }),
+  updatePersonaPrompt: () => ({ prompt: PERSONA_WITH_CHATS.prompts[0] }),
+  removePersonaPrompt: () => ({ ok: true }),
   publishPersona: () => ({ ok: true }),
   deletePersona: () => ({ ok: true }),
   getPluginHealth: () => HEALTH_AVAILABLE,
@@ -499,6 +532,135 @@ describe("personas nav panel", () => {
       );
       expect(deleteCall?.input).toEqual({ personaId: "persona_3" });
     });
+    slot.lifecycle.unmount();
+  });
+
+  // -- Prompt pool editor ------------------------------------------------------
+
+  it("renders each pool entry as a 24-character preview with an overflow ellipsis", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    // "Always answer in pirate speak." is 31 characters, so the entry shows
+    // exactly its first 24 ("Always answer in pirate ") plus an ellipsis.
+    await slot.findByLabelText("Text prompt");
+    expect(slot.queryByText("No prompts yet — add one below.")).toBeNull();
+    await slot.findByText("Always answer in pirate …");
+    expect(slot.queryByText("Always answer in pirate speak.")).toBeNull();
+
+    slot.lifecycle.unmount();
+  });
+
+  it("shows the empty-pool hint and a disabled + Add for a persona with no prompts", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+
+    await slot.findByText("No prompts yet — add one below.");
+    expect(
+      (slot.getByRole("button", { name: "+ Add" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    slot.lifecycle.unmount();
+  });
+
+  it("adds a text prompt from the textarea and + Add button", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+
+    const textarea = await slot.findByLabelText("Text prompt");
+    fireEvent.change(textarea, { target: { value: "Never break character." } });
+    (await slot.findByRole("button", { name: "+ Add" })).click();
+
+    await waitFor(() => {
+      const addCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "addPersonaPrompt",
+      );
+      expect(addCall?.input).toEqual({
+        personaId: "persona_3",
+        type: "text",
+        text: "Never break character.",
+      });
+    });
+    // The form resets after a successful add.
+    await waitFor(() =>
+      expect(
+        (slot.getByLabelText("Text prompt") as HTMLTextAreaElement).value,
+      ).toBe(""),
+    );
+
+    slot.lifecycle.unmount();
+  });
+
+  it("blocks a prompt whose first 24 characters match an existing entry, without an RPC", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    // persona_1 already holds "Always answer in pirate speak."; the first 24
+    // characters of this draft are the same, so the client-side rule fires.
+    const textarea = await slot.findByLabelText("Text prompt");
+    fireEvent.change(textarea, {
+      target: { value: "Always answer in pirate XX" },
+    });
+    (await slot.findByRole("button", { name: "+ Add" })).click();
+
+    await slot.findByText(
+      "This pool already has a prompt with the same first 24 characters.",
+    );
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "addPersonaPrompt"),
+    ).toBe(false);
+    // The draft survives so the user can fix it.
+    expect(
+      (slot.getByLabelText("Text prompt") as HTMLTextAreaElement).value,
+    ).toBe("Always answer in pirate XX");
+
+    slot.lifecycle.unmount();
+  });
+
+  it("edits an existing prompt in place and cancels out of the edit", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    (await slot.findByRole("button", { name: "Edit prompt: Always answer in pirate …" })).click();
+
+    // The textarea loads the prompt's full text for editing.
+    const textarea = (await slot.findByLabelText(
+      "Text prompt",
+    )) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Always answer in pirate speak.");
+    fireEvent.change(textarea, { target: { value: "Answer as a parrot instead." } });
+
+    (await slot.findByRole("button", { name: "Save prompt" })).click();
+    await waitFor(() => {
+      const updateCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "updatePersonaPrompt",
+      );
+      expect(updateCall?.input).toEqual({
+        personaId: "persona_1",
+        promptId: "prompt_1",
+        text: "Answer as a parrot instead.",
+      });
+    });
+
+    slot.lifecycle.unmount();
+  });
+
+  it("removes a prompt from the pool", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    (await slot.findByRole("button", { name: "Remove prompt: Always answer in pirate …" })).click();
+
+    await waitFor(() => {
+      const removeCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "removePersonaPrompt",
+      );
+      expect(removeCall?.input).toEqual({
+        personaId: "persona_1",
+        promptId: "prompt_1",
+      });
+    });
+
     slot.lifecycle.unmount();
   });
 

@@ -26,12 +26,16 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
 import {
+  clampPromptText,
   displayName,
   draftBlockers,
-  MAX_INSTRUCTIONS,
+  hasPromptConflict,
   MAX_NAME,
+  MAX_PROMPT_TEXT,
   pickEmoji,
+  promptPreview,
   type Persona,
+  type PersonaPrompt,
   type ReasoningLevel,
 } from "@/personas";
 
@@ -44,7 +48,6 @@ const AUTOSAVE_DELAY_MS = 600;
 interface DraftFields {
   name: string;
   emoji: string;
-  instructions: string;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -54,7 +57,6 @@ interface DraftFields {
 type PersonaPatch = Partial<{
   name: string;
   emoji: string;
-  instructions: string;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -76,10 +78,6 @@ function diffDraft(
   if (current.emoji !== base.emoji) {
     patch.emoji = current.emoji;
     nextBase.emoji = current.emoji;
-  }
-  if (current.instructions !== base.instructions) {
-    patch.instructions = current.instructions;
-    nextBase.instructions = current.instructions;
   }
   if (current.providerId !== base.providerId) {
     patch.providerId = current.providerId;
@@ -107,14 +105,13 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
 
   // One round trip for everything the form needs, so the pickers and the
   // existing values arrive together instead of in a waterfall.
-  const { data, error } = useQuery(
+  const { data, error, reload } = useQuery(
     () => Promise.all([rpc.call("listOptions"), rpc.call("getPersona", { personaId })]),
     `editor:${personaId}`,
   );
 
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState(pickEmoji);
-  const [instructions, setInstructions] = useState("");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel | null>(null);
@@ -125,6 +122,12 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
   );
+  // Prompt-pool form state. `editingPromptId` is non-null while the textarea
+  // holds an existing prompt being edited rather than a fresh one.
+  const [promptDraft, setPromptDraft] = useState("");
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const [isPoolBusy, setIsPoolBusy] = useState(false);
 
   const options = data?.[0] ?? null;
   const persona = data?.[1].persona ?? null;
@@ -137,7 +140,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const draftRef = useRef<DraftFields>({
     name,
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -146,7 +148,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   draftRef.current = {
     name,
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -212,7 +213,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
             options.providers[0])?.id ?? "";
     setName(persona.name);
     setEmoji(persona.emoji);
-    setInstructions(persona.instructions);
     setProviderId(seededProviderId);
     setModel(persona.model);
     setReasoningLevel(persona.reasoningLevel);
@@ -222,7 +222,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     savedRef.current = {
       name: persona.name,
       emoji: persona.emoji,
-      instructions: persona.instructions,
       providerId: persona.providerId,
       model: persona.model,
       reasoningLevel: persona.reasoningLevel,
@@ -275,7 +274,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSeeded, name, emoji, instructions, providerId, model, reasoningLevel, projectId]);
+  }, [isSeeded, name, emoji, providerId, model, reasoningLevel, projectId]);
 
   // A user hitting Cmd-W (or Alt-Tab, etc.) moments after typing must not
   // lose that keystroke, so flush on both unmount and window blur — blur
@@ -301,6 +300,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
 
   const selectedModel = available.find((candidate) => candidate.id === model);
   const isDraft = persona.status === "draft";
+  const prompts = persona.prompts;
 
   // Blockers reflect what's on screen right now, not the last save that
   // landed — otherwise Publish would only enable after a round trip.
@@ -308,7 +308,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     ...persona,
     name: name.trim(),
     emoji,
-    instructions,
     providerId,
     model,
     reasoningLevel,
@@ -352,6 +351,67 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       navigate.toPluginPanel(PANEL_PATH, { subPath: personaId, replace: true });
     } finally {
       setIsBusy(false);
+    }
+  }
+
+  // -- Prompt pool -----------------------------------------------------------
+
+  function startEditPrompt(prompt: PersonaPrompt): void {
+    setEditingPromptId(prompt.id);
+    setPromptDraft(prompt.text);
+    setPromptError(null);
+  }
+
+  function resetPromptForm(): void {
+    setEditingPromptId(null);
+    setPromptDraft("");
+    setPromptError(null);
+  }
+
+  async function submitPrompt(): Promise<void> {
+    const text = clampPromptText(promptDraft);
+    if (text.length === 0) return;
+    // Pre-checked locally so a duplicate is caught without a round trip; the
+    // server re-checks the rule (it owns it) and its message toasts on catch.
+    const siblings = prompts
+      .filter((prompt) => prompt.id !== editingPromptId)
+      .map((prompt) => prompt.text);
+    if (hasPromptConflict(siblings, text)) {
+      setPromptError(
+        "This pool already has a prompt with the same first 24 characters.",
+      );
+      return;
+    }
+    setIsPoolBusy(true);
+    try {
+      if (editingPromptId === null) {
+        await rpc.call("addPersonaPrompt", { personaId, type: "text", text });
+      } else {
+        await rpc.call("updatePersonaPrompt", {
+          personaId,
+          promptId: editingPromptId,
+          text,
+        });
+      }
+      resetPromptForm();
+      reload();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsPoolBusy(false);
+    }
+  }
+
+  async function removePrompt(promptId: string): Promise<void> {
+    setIsPoolBusy(true);
+    try {
+      await rpc.call("removePersonaPrompt", { personaId, promptId });
+      if (editingPromptId === promptId) resetPromptForm();
+      reload();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsPoolBusy(false);
     }
   }
 
@@ -405,22 +465,95 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
 
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <Label htmlFor="persona-instructions">Instructions</Label>
+          <span className="text-sm font-medium">Prompt pool</span>
           <span className="text-xs text-muted-foreground">
-            {instructions.length} / {MAX_INSTRUCTIONS}
+            {prompts.length === 0
+              ? "Empty"
+              : `${prompts.length} prompt${prompts.length === 1 ? "" : "s"}`}
           </span>
         </div>
+        {prompts.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No prompts yet — add one below.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {prompts.map((prompt) => (
+              <li key={prompt.id} className="flex items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 truncate text-sm" title={prompt.text}>
+                  {promptPreview(prompt.text)}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isPoolBusy}
+                  aria-label={`Edit prompt: ${promptPreview(prompt.text)}`}
+                  onClick={() => startEditPrompt(prompt)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={isPoolBusy}
+                  aria-label={`Remove prompt: ${promptPreview(prompt.text)}`}
+                  onClick={() => void removePrompt(prompt.id)}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
         <Textarea
-          id="persona-instructions"
-          value={instructions}
-          rows={10}
-          maxLength={MAX_INSTRUCTIONS}
-          placeholder="Always answer in exaggerated pirate speak. Never break character."
-          onChange={(event) => setInstructions(event.target.value)}
+          id="persona-prompt-text"
+          aria-label="Text prompt"
+          value={promptDraft}
+          rows={4}
+          maxLength={MAX_PROMPT_TEXT}
+          placeholder="A standing prompt, e.g. Always answer in exaggerated pirate speak."
+          onChange={(event) => {
+            setPromptDraft(event.target.value);
+            setPromptError(null);
+          }}
         />
-        <p className="text-xs text-muted-foreground">
-          Injected into every turn of this persona&apos;s chats.
-        </p>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            {promptDraft.length} / {MAX_PROMPT_TEXT}
+          </span>
+          <div className="flex items-center gap-2">
+            {editingPromptId !== null ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isPoolBusy}
+                onClick={resetPromptForm}
+              >
+                Cancel
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPoolBusy || promptDraft.trim().length === 0}
+              onClick={() => void submitPrompt()}
+            >
+              {editingPromptId !== null ? "Save prompt" : "+ Add"}
+            </Button>
+          </div>
+        </div>
+        {promptError !== null ? (
+          <p className="text-xs text-destructive">{promptError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Every prompt in the pool is injected into each turn of this
+            persona&apos;s chats.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

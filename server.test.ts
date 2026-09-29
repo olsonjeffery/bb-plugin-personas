@@ -92,16 +92,18 @@ function makeHost() {
 }
 
 // The full set of fields savePersona accepts, standing in for what the editor
-// autosaves once the user has filled everything in.
+// autosaves once the user has filled everything in. The prompt pool is filled
+// separately via addPersonaPrompt, the way the editor's pool form does.
 const PATCH = {
   name: "Pirate",
   emoji: "🏴‍☠️",
-  instructions: "Always answer in pirate speak.",
   providerId: "codex",
   model: "gpt-5.5",
   reasoningLevel: "medium" as const,
   projectId: null,
 };
+
+const PROMPT_TEXT = "Always answer in pirate speak.";
 
 // What `experimental_NewThreadComposer` hands back once every selection is
 // resolved. `projectId`/`environment` here stand in for "Don't work in a
@@ -129,14 +131,19 @@ beforeEach(async () => {
 });
 
 // createPersona only ever writes a bare draft row now; tests that need a
-// complete, publishable persona go through savePersona + publishPersona the same way
-// the editor does.
+// complete, publishable persona go through savePersona + addPersonaPrompt +
+// publishPersona the same way the editor does.
 async function createPublishedPersona(): Promise<string> {
   const { personaId } = (await host.harness.behavior.callRpc(
     "createPersona",
     null,
   )) as { personaId: string };
   await host.harness.behavior.callRpc("savePersona", { personaId, patch: PATCH });
+  await host.harness.behavior.callRpc("addPersonaPrompt", {
+    personaId,
+    type: "text",
+    text: PROMPT_TEXT,
+  });
   await host.harness.behavior.callRpc("publishPersona", { personaId });
   return personaId;
 }
@@ -225,7 +232,7 @@ describe("instruction routing", () => {
 
     const forPersona = provide!({ threadId, projectId: "proj_personal" });
     expect(forPersona).toContain("Pirate");
-    expect(forPersona).toContain("Always answer in pirate speak.");
+    expect(forPersona).toContain(PROMPT_TEXT);
 
     // The guard that keeps personas out of every other thread in BB.
     expect(provide!({ threadId: "thr_unrelated", projectId: "p" })).toBeNull();
@@ -241,6 +248,146 @@ describe("instruction routing", () => {
 
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toBeNull();
+  });
+});
+
+describe("prompt pool", () => {
+  async function createDraft(): Promise<string> {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
+      null,
+    )) as { personaId: string };
+    return personaId;
+  }
+
+  async function addPrompt(personaId: string, text: string) {
+    return (await host.harness.behavior.callRpc("addPersonaPrompt", {
+      personaId,
+      type: "text",
+      text,
+    })) as { prompt: { id: string; personaId: string; type: string; text: string; position: number } };
+  }
+
+  async function getPrompts(personaId: string) {
+    const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+      personaId,
+    })) as { persona: { prompts: { id: string; type: string; text: string }[] } | null };
+    return persona?.prompts ?? [];
+  }
+
+  it("adds a trimmed text prompt tied to that one persona", async () => {
+    const personaId = await createDraft();
+    const { prompt } = await addPrompt(personaId, `  ${PROMPT_TEXT}  `);
+    expect(prompt).toMatchObject({
+      personaId,
+      type: "text",
+      text: PROMPT_TEXT,
+      position: 0,
+    });
+    expect(await getPrompts(personaId)).toHaveLength(1);
+  });
+
+  it("rejects a second prompt whose first 24 characters match an existing one", async () => {
+    const personaId = await createDraft();
+    await addPrompt(personaId, `${"a".repeat(30)} one`);
+    await expect(
+      addPrompt(personaId, `${"a".repeat(24)} entirely different tail`),
+    ).rejects.toThrow("same first 24 characters");
+    expect(await getPrompts(personaId)).toHaveLength(1);
+  });
+
+  it("allows the same text on a different persona", async () => {
+    const first = await createDraft();
+    const second = await createDraft();
+    await addPrompt(first, PROMPT_TEXT);
+    await expect(addPrompt(second, PROMPT_TEXT)).resolves.toBeTruthy();
+  });
+
+  it("rejects an empty or whitespace-only prompt", async () => {
+    const personaId = await createDraft();
+    await expect(addPrompt(personaId, "   ")).rejects.toThrow(
+      "A prompt needs some text",
+    );
+  });
+
+  it("rejects a prompt for an unknown persona", async () => {
+    await expect(
+      addPrompt("persona_missing", PROMPT_TEXT),
+    ).rejects.toThrow("Unknown persona");
+  });
+
+  it("updates a prompt's text, and a prompt may keep its own text", async () => {
+    const personaId = await createDraft();
+    const { prompt } = await addPrompt(personaId, PROMPT_TEXT);
+
+    // Keeping its own text is not a conflict with itself.
+    const kept = (await host.harness.behavior.callRpc("updatePersonaPrompt", {
+      personaId,
+      promptId: prompt.id,
+      text: PROMPT_TEXT,
+    })) as { prompt: { text: string } };
+    expect(kept.prompt.text).toBe(PROMPT_TEXT);
+
+    const updated = (await host.harness.behavior.callRpc(
+      "updatePersonaPrompt",
+      { personaId, promptId: prompt.id, text: "Never break character." },
+    )) as { prompt: { text: string } };
+    expect(updated.prompt.text).toBe("Never break character.");
+    expect((await getPrompts(personaId))[0]?.text).toBe(
+      "Never break character.",
+    );
+  });
+
+  it("rejects an update that collides with a sibling prompt", async () => {
+    const personaId = await createDraft();
+    const { prompt: first } = await addPrompt(personaId, `${"b".repeat(30)} one`);
+    await addPrompt(personaId, `${"c".repeat(30)} two`);
+    await expect(
+      host.harness.behavior.callRpc("updatePersonaPrompt", {
+        personaId,
+        promptId: first.id,
+        text: `${"c".repeat(24)} different tail`,
+      }),
+    ).rejects.toThrow("same first 24 characters");
+  });
+
+  it("removes one prompt and leaves the persona's other prompts", async () => {
+    const personaId = await createDraft();
+    const { prompt: first } = await addPrompt(personaId, PROMPT_TEXT);
+    await addPrompt(personaId, "Never break character.");
+
+    const result = (await host.harness.behavior.callRpc(
+      "removePersonaPrompt",
+      { personaId, promptId: first.id },
+    )) as { ok: boolean };
+    expect(result).toEqual({ ok: true });
+    expect((await getPrompts(personaId)).map((prompt) => prompt.text)).toEqual([
+      "Never break character.",
+    ]);
+  });
+
+  it("rejects removing a prompt that isn't one of this persona's own", async () => {
+    const owner = await createDraft();
+    const other = await createDraft();
+    const { prompt } = await addPrompt(owner, PROMPT_TEXT);
+    await expect(
+      host.harness.behavior.callRpc("removePersonaPrompt", {
+        personaId: other,
+        promptId: prompt.id,
+      }),
+    ).rejects.toThrow("Unknown prompt");
+  });
+
+  it("deletes the prompt pool with the persona", async () => {
+    const personaId = await createDraft();
+    await addPrompt(personaId, PROMPT_TEXT);
+    await host.harness.behavior.callRpc("deletePersona", { personaId });
+
+    const rows = host.bb.storage
+      .database()
+      .prepare("SELECT * FROM persona_prompts WHERE persona_id = ?")
+      .all(personaId);
+    expect(rows).toHaveLength(0);
   });
 });
 
@@ -319,14 +466,14 @@ describe("startChat", () => {
     })) as { threadId: string };
 
     const provide = host.harness.registrations.instructionProvider!;
-    const instructions = provide({ threadId, projectId: "proj_personal" });
-    expect(instructions).toContain("Pirate");
-    expect(instructions).toContain("Always answer in pirate speak.");
+    const contributed = provide({ threadId, projectId: "proj_personal" });
+    expect(contributed).toContain("Pirate");
+    expect(contributed).toContain(PROMPT_TEXT);
   });
 });
 
 describe("persistence", () => {
-  it("keeps personas and their thread mapping across a reload", async () => {
+  it("keeps personas, their thread mapping, and their prompt pool across a reload", async () => {
     const personaId = await createPublishedPersona();
     const { threadId } = (await host.harness.behavior.callRpc("startChat", {
       personaId,
@@ -341,8 +488,55 @@ describe("persistence", () => {
     )) as { personas: { id: string }[] };
     expect(personas.map((persona) => persona.id)).toEqual([personaId]);
 
+    const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+      personaId,
+    })) as { persona: { prompts: { text: string }[] } | null };
+    expect(persona?.prompts.map((prompt) => prompt.text)).toEqual([PROMPT_TEXT]);
+
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toContain("Pirate");
+  });
+
+  it("carries a pre-pool instructions column into exactly one text prompt, and only once", async () => {
+    // Simulates a database last written before the prompt pool existed: the
+    // persona's standing text lives in the legacy `instructions` column.
+    const db = host.bb.storage.database();
+    db.prepare(
+      `INSERT INTO personas (id, name, emoji, instructions, provider_id, model,
+                         reasoning_level, project_id, status, created_at, updated_at)
+       VALUES ('persona_prepool', 'Legacy', '🤖', 'Be legacy.', 'codex', 'gpt-5.5',
+               'medium', NULL, 'published', 1, 1)`,
+    ).run();
+
+    const reloaded = await host.harness.lifecycle.reload(plugin);
+
+    const { persona } = (await reloaded.harness.behavior.callRpc("getPersona", {
+      personaId: "persona_prepool",
+    })) as { persona: { prompts: { type: string; text: string }[] } | null };
+    expect(persona?.prompts).toHaveLength(1);
+    expect(persona?.prompts[0]).toMatchObject({
+      type: "text",
+      text: "Be legacy.",
+    });
+
+    // The injected block carries the carried-over prompt like a native one.
+    const { threadId } = (await reloaded.harness.behavior.callRpc("startChat", {
+      personaId: "persona_prepool",
+      request: makeRequest(),
+    })) as { threadId: string };
+    const provide = reloaded.harness.registrations.instructionProvider!;
+    expect(provide({ threadId, projectId: "proj_personal" })).toContain(
+      "Be legacy.",
+    );
+
+    // A persona the pool already covers (its own rows) is skipped on every
+    // later start, so a second reload must not duplicate the prompt.
+    const reloadedAgain = await reloaded.harness.lifecycle.reload(plugin);
+    const { persona: again } = (await reloadedAgain.harness.behavior.callRpc(
+      "getPersona",
+      { personaId: "persona_prepool" },
+    )) as { persona: { prompts: { text: string }[] } | null };
+    expect(again?.prompts).toHaveLength(1);
   });
 
   it("reads a persona inserted before the status column existed as published", async () => {
