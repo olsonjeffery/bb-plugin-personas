@@ -610,20 +610,6 @@ describe("prompt pool", () => {
 });
 
 describe("prompt-pool sources", () => {
-  function makeDocNote(overrides: Record<string, unknown> = {}) {
-    return {
-      path: "plans/release.md",
-      title: "Release plan",
-      preview: "Ship the pool sources",
-      modifiedAtMs: 10,
-      ...overrides,
-    };
-  }
-
-  function makeVault(overrides: Record<string, unknown> = {}) {
-    return { id: "personal", name: "Personal", hostId: null, rootPath: "/v", ...overrides };
-  }
-
   it("lists active Floating Notes newest-first, reading only the fields a prompt needs", async () => {
     const calls = stubCrossPluginRpc({
       "floating-notes:listNotes": () => ({
@@ -668,153 +654,7 @@ describe("prompt-pool sources", () => {
     ).toHaveLength(0);
   });
 
-  it("lists docs from every global vault, skipping host vaults and failed scans", async () => {
-    const calls = stubCrossPluginRpc({
-      "simple-notes:listNotes": (input: unknown) => {
-        const { vaultId } = input as { vaultId?: string };
-        if (vaultId === undefined) {
-          // The enumerating call: every vault, plus the default vault's notes.
-          return {
-            vaults: [
-              makeVault({ id: "personal", name: "Personal" }),
-              makeVault({ id: "mtc", name: "mtc" }),
-              makeVault({ id: "broken", name: "Broken" }),
-              makeVault({ id: "remote", name: "Remote", hostId: "host_1" }),
-            ],
-            vault: makeVault({ id: "personal", name: "Personal" }),
-            notes: [makeDocNote({ path: "personal.md", modifiedAtMs: 5 })],
-            hosts: [],
-            entries: [],
-            entryOrder: [],
-            truncated: false,
-            error: null,
-          };
-        }
-        if (vaultId === "mtc") {
-          return {
-            vaults: [],
-            vault: makeVault({ id: "mtc", name: "mtc" }),
-            notes: [makeDocNote({ path: "mtc.md", modifiedAtMs: 50 })],
-            hosts: [],
-            entries: [],
-            entryOrder: [],
-            truncated: false,
-            error: null,
-          };
-        }
-        // The scan of "broken" failed; the Docs plugin reports it inline.
-        return {
-          vaults: [],
-          vault: makeVault({ id: "broken", name: "Broken" }),
-          notes: [],
-          hosts: [],
-          entries: [],
-          entryOrder: [],
-          truncated: false,
-          error: "vault root missing",
-        };
-      },
-    });
-
-    const { docs } = (await host.harness.behavior.callRpc(
-      "listDocs",
-      null,
-    )) as {
-      docs: {
-        vaultId: string;
-        vaultName: string;
-        path: string;
-        title: string;
-        preview: string;
-        modifiedAtMs: number;
-      }[];
-    };
-
-    // Only the global vaults were scanned: the default vault rode along with
-    // the enumerating call, one more call read "mtc", "broken" reported its
-    // own scan failure, and the host vault was never asked for anything.
-    const askedVaultIds = calls
-      .map((call) => (call.input as { vaultId?: string }).vaultId)
-      .filter((vaultId) => vaultId !== undefined);
-    expect(askedVaultIds).toEqual(["mtc", "broken"]);
-    expect(docs).toEqual([
-      {
-        vaultId: "mtc",
-        vaultName: "mtc",
-        path: "mtc.md",
-        title: "Release plan",
-        preview: "Ship the pool sources",
-        modifiedAtMs: 50,
-      },
-      {
-        vaultId: "personal",
-        vaultName: "Personal",
-        path: "personal.md",
-        title: "Release plan",
-        preview: "Ship the pool sources",
-        modifiedAtMs: 5,
-      },
-    ]);
-  });
-
-  it("refuses to list docs when the Docs plugin isn't available", async () => {
-    stubCrossPluginRpc({});
-    host.harness.inspection.sdk.stub(
-      "plugins.list",
-      (async () => ({ plugins: [] })) as never,
-    );
-
-    await expect(host.harness.behavior.callRpc("listDocs", null)).rejects.toThrow(
-      "Docs is not installed and enabled",
-    );
-    expect(
-      host.harness.inspection.sdk.callsTo("plugins.callRpc"),
-    ).toHaveLength(0);
-  });
-
-  it("reads a doc's content as utf8 text", async () => {
-    const calls = stubCrossPluginRpc({
-      "simple-notes:readNote": () => ({
-        path: "plans/release.md",
-        content: "# Release plan",
-        contentEncoding: "utf8",
-        sizeBytes: 14,
-        sha256: "abc",
-      }),
-    });
-
-    const { content } = (await host.harness.behavior.callRpc("readDoc", {
-      vaultId: "personal",
-      path: "plans/release.md",
-    })) as { content: string };
-
-    expect(calls[0]).toMatchObject({
-      pluginId: "simple-notes",
-      method: "readNote",
-      input: { vaultId: "personal", path: "plans/release.md" },
-    });
-    expect(content).toBe("# Release plan");
-  });
-
-  it("decodes a doc that arrives base64-encoded", async () => {
-    stubCrossPluginRpc({
-      "simple-notes:readNote": () => ({
-        path: "plans/release.md",
-        content: Buffer.from("# Release plan", "utf8").toString("base64"),
-        contentEncoding: "base64",
-        sizeBytes: 14,
-        sha256: "abc",
-      }),
-    });
-
-    const { content } = (await host.harness.behavior.callRpc("readDoc", {
-      vaultId: "personal",
-      path: "plans/release.md",
-    })) as { content: string };
-    expect(content).toBe("# Release plan");
-  });
-
-  it("refuses to read a doc when the Docs plugin isn't available", async () => {
+  it("refuses to list Floating Notes when the plugin isn't available", async () => {
     stubCrossPluginRpc({});
     host.harness.inspection.sdk.stub(
       "plugins.list",
@@ -822,11 +662,8 @@ describe("prompt-pool sources", () => {
     );
 
     await expect(
-      host.harness.behavior.callRpc("readDoc", {
-        vaultId: "personal",
-        path: "plans/release.md",
-      }),
-    ).rejects.toThrow("Docs is not installed and enabled");
+      host.harness.behavior.callRpc("listFloatingNotes", null),
+    ).rejects.toThrow("Floating Notes is not installed and enabled");
     expect(
       host.harness.inspection.sdk.callsTo("plugins.callRpc"),
     ).toHaveLength(0);
@@ -1345,7 +1182,7 @@ describe("listOptions", () => {
 });
 
 describe("getPluginHealth", () => {
-  it("reports Floating Notes and Docs available when both are installed, enabled, and running", async () => {
+  it("reports Floating Notes available when it is installed, enabled, and running", async () => {
     const health = (await host.harness.behavior.callRpc(
       "getPluginHealth",
       null,
@@ -1364,17 +1201,51 @@ describe("getPluginHealth", () => {
         installUrl: null,
         available: true,
       },
-      {
-        id: "simple-notes",
-        label: "Docs",
-        installed: true,
-        enabled: true,
-        status: "running",
-        version: "0.2.3",
-        installUrl: null,
-        available: true,
-      },
     ]);
+  });
+
+  it("reports the install source of the Personas plugin itself", async () => {
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({
+        plugins: [
+          {
+            id: "personas",
+            enabled: true,
+            status: "running",
+            version: "1.9.0",
+            source: "path:/home/jeff/src/bb-proj/bb-plugin-personas",
+          },
+        ],
+      })) as never,
+    );
+
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+
+    expect(health.self).toEqual({
+      version: "1.9.0",
+      source: "path:/home/jeff/src/bb-proj/bb-plugin-personas",
+      managed: false,
+      sourceLabel:
+        "Local path install — /home/jeff/src/bb-proj/bb-plugin-personas",
+    });
+  });
+
+  it("degrades the self row when the plugin list carries no source", async () => {
+    const health = (await host.harness.behavior.callRpc(
+      "getPluginHealth",
+      null,
+    )) as PluginHealthReport;
+
+    expect(health.self).toEqual({
+      version: "1.2.0",
+      source: null,
+      managed: false,
+      sourceLabel: null,
+    });
   });
 
   it("reports each missing plugin with its own plugin page link", async () => {
@@ -1404,16 +1275,6 @@ describe("getPluginHealth", () => {
         installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
         available: false,
       },
-      {
-        id: "simple-notes",
-        label: "Docs",
-        installed: false,
-        enabled: false,
-        status: null,
-        version: null,
-        installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
-        available: false,
-      },
     ]);
   });
 
@@ -1428,12 +1289,6 @@ describe("getPluginHealth", () => {
             enabled: false,
             status: "disabled",
             version: "1.2.1",
-          },
-          {
-            id: "simple-notes",
-            enabled: true,
-            status: "running",
-            version: "0.2.3",
           },
         ],
       })) as never,
@@ -1453,12 +1308,6 @@ describe("getPluginHealth", () => {
       status: "disabled",
       installUrl: null,
       available: false,
-    });
-    // Docs is unaffected by Floating Notes' state.
-    expect(health.tools[1]).toMatchObject({
-      id: "simple-notes",
-      available: true,
-      installUrl: null,
     });
   });
 

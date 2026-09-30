@@ -9,7 +9,6 @@ import {
   encodeNotePromptRef,
   EMOJI_GROUPS,
   EMOJIS,
-  escapeHtml,
   INSTRUCTION_LIMIT,
   isPersonaColor,
   isSingleEmoji,
@@ -630,30 +629,6 @@ describe("resolvedPromptText / resolvePromptTexts", () => {
       ...notePrompt("prompt_2", "note_live"),
       text: "Feed crackers twice a day.",
     });
-  });
-});
-
-describe("escapeHtml", () => {
-  it("escapes the five characters that carry meaning in markup", () => {
-    expect(escapeHtml(`<a href="x" class='y'>&</a>`)).toBe(
-      "&lt;a href=&quot;x&quot; class=&#39;y&#39;&gt;&amp;&lt;/a&gt;",
-    );
-  });
-
-  it("passes plain text through unchanged", () => {
-    expect(escapeHtml("Always answer in pirate speak.")).toBe(
-      "Always answer in pirate speak.",
-    );
-  });
-
-  it("escapes every occurrence, not just the first", () => {
-    expect(escapeHtml("a & b & c")).toBe("a &amp; b &amp; c");
-  });
-
-  it("escapes ampersands first so entities never nest", () => {
-    // "&amp;" in the source must not become "&amp;amp;" — but "&lt;" must,
-    // because the source really held a less-than sign.
-    expect(escapeHtml("&amp;&lt;")).toBe("&amp;amp;&amp;lt;");
   });
 });
 

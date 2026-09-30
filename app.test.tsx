@@ -137,140 +137,82 @@ const PERSONAS_BY_ID: Record<
   persona_5: PERSONA_WITH_NOTE,
 };
 
+// The getPluginHealth RPC's self field: where this Personas install came
+// from. A git source reads as the managed/official install.
+const SELF_MANAGED = {
+  version: "1.9.0",
+  source: "git:https://github.com/olsonjeffery/bb-plugin-personas.git@semver:^1.9.0",
+  managed: true,
+  sourceLabel:
+    "git:https://github.com/olsonjeffery/bb-plugin-personas.git@semver:^1.9.0",
+};
+
+// The local, in-progress path checkout.
+const SELF_PATH = {
+  version: "1.9.0",
+  source: "path:/home/jeff/src/bb-plugin-personas",
+  managed: false,
+  sourceLabel: "Local path install — /home/jeff/src/bb-plugin-personas",
+};
+
+const FLOATING_NOTES_ROW = {
+  id: "floating-notes",
+  label: "Floating Notes",
+  installed: true,
+  enabled: true,
+  status: "running",
+  version: "1.2.1",
+  installUrl: null,
+  available: true,
+};
+
+const FLOATING_NOTES_ROW_MISSING = {
+  id: "floating-notes",
+  label: "Floating Notes",
+  installed: false,
+  enabled: false,
+  status: null,
+  version: null,
+  installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
+  available: false,
+};
+
+const FLOATING_NOTES_ROW_DISABLED = {
+  id: "floating-notes",
+  label: "Floating Notes",
+  installed: true,
+  enabled: false,
+  status: "disabled",
+  version: "1.2.1",
+  installUrl: null,
+  available: false,
+};
+
 const HEALTH_AVAILABLE = {
   floatingNotesAvailable: true,
-  tools: [
-    {
-      id: "floating-notes",
-      label: "Floating Notes",
-      installed: true,
-      enabled: true,
-      status: "running",
-      version: "1.2.1",
-      installUrl: null,
-      available: true,
-    },
-    {
-      id: "simple-notes",
-      label: "Docs",
-      installed: true,
-      enabled: true,
-      status: "running",
-      version: "0.2.3",
-      installUrl: null,
-      available: true,
-    },
-  ],
+  tools: [FLOATING_NOTES_ROW],
+  self: SELF_MANAGED,
 };
 
-// Floating Notes missing but Docs healthy, so "Not installed" and the one
-// Install link both belong to the Floating Notes row.
+// Floating Notes missing: "Not installed", the one Install link — and no
+// Add-note affordance anywhere in the persona config screen.
 const HEALTH_MISSING = {
   floatingNotesAvailable: false,
-  tools: [
-    {
-      id: "floating-notes",
-      label: "Floating Notes",
-      installed: false,
-      enabled: false,
-      status: null,
-      version: null,
-      installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
-      available: false,
-    },
-    {
-      id: "simple-notes",
-      label: "Docs",
-      installed: true,
-      enabled: true,
-      status: "running",
-      version: "0.2.3",
-      installUrl: null,
-      available: true,
-    },
-  ],
-};
-
-// Docs missing but Floating Notes healthy, so the one Install link belongs to
-// the Docs row and points at the official plugin page.
-const HEALTH_DOCS_MISSING = {
-  floatingNotesAvailable: true,
-  tools: [
-    {
-      id: "floating-notes",
-      label: "Floating Notes",
-      installed: true,
-      enabled: true,
-      status: "running",
-      version: "1.2.1",
-      installUrl: null,
-      available: true,
-    },
-    {
-      id: "simple-notes",
-      label: "Docs",
-      installed: false,
-      enabled: false,
-      status: null,
-      version: null,
-      installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
-      available: false,
-    },
-  ],
+  tools: [FLOATING_NOTES_ROW_MISSING],
+  self: SELF_MANAGED,
 };
 
 const HEALTH_DISABLED = {
   floatingNotesAvailable: false,
-  tools: [
-    {
-      id: "floating-notes",
-      label: "Floating Notes",
-      installed: true,
-      enabled: false,
-      status: "disabled",
-      version: "1.2.1",
-      installUrl: null,
-      available: false,
-    },
-    {
-      id: "simple-notes",
-      label: "Docs",
-      installed: true,
-      enabled: true,
-      status: "running",
-      version: "0.2.3",
-      installUrl: null,
-      available: true,
-    },
-  ],
+  tools: [FLOATING_NOTES_ROW_DISABLED],
+  self: SELF_MANAGED,
 };
 
-// Neither cooperating plugin available, so the + Add dropdown has nothing to
-// offer and the button stays a plain one.
-const HEALTH_NONE = {
-  floatingNotesAvailable: false,
-  tools: [
-    {
-      id: "floating-notes",
-      label: "Floating Notes",
-      installed: false,
-      enabled: false,
-      status: null,
-      version: null,
-      installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
-      available: false,
-    },
-    {
-      id: "simple-notes",
-      label: "Docs",
-      installed: false,
-      enabled: false,
-      status: null,
-      version: null,
-      installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
-      available: false,
-    },
-  ],
+// A path install: the settings page must show the in-progress marker.
+const HEALTH_PATH_INSTALL = {
+  floatingNotesAvailable: true,
+  tools: [FLOATING_NOTES_ROW],
+  self: SELF_PATH,
 };
 
 const FLOATING_NOTES = {
@@ -287,19 +229,6 @@ const FLOATING_NOTES = {
       title: "Parrot care",
       body: "Feed crackers twice a day.",
       updatedAt: 10,
-    },
-  ],
-};
-
-const DOCS = {
-  docs: [
-    {
-      vaultId: "personal",
-      vaultName: "Personal",
-      path: "plans/release.md",
-      title: "Release plan",
-      preview: "Ship the pool sources",
-      modifiedAtMs: 30,
     },
   ],
 };
@@ -367,10 +296,6 @@ const RPC = {
   deletePersona: () => ({ ok: true }),
   getPluginHealth: () => HEALTH_AVAILABLE,
   listFloatingNotes: () => FLOATING_NOTES,
-  listDocs: () => DOCS,
-  readDoc: () => ({
-    content: "# Release plan\n\n<b>Ship</b> the pool sources.",
-  }),
 };
 
 async function loadPanel() {
@@ -432,19 +357,20 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("shows the composer for a persona with chats instead of redirecting into the newest one", async () => {
+  it("lands the persona detail view in the live editor with no redirect", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
 
-    await slot.findByTestId("bb-new-thread-composer");
+    await slot.findByText("Live edit");
     expect(slot.inspection.navigateCalls).toEqual([]);
     slot.lifecycle.unmount();
   });
 
-  it("renders the chat list inside the persona page and navigates to a chat on click", async () => {
+  it("renders the composer and chat list on the persona's new-chat page", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: RPC });
 
+    await slot.findByTestId("bb-new-thread-composer");
     await slot.findByText("Chats (1)");
     // "Ahoy there" also appears as the rail row's newest-chat preview, so
     // pick out the one that lives inside the persona page's chat list.
@@ -483,9 +409,9 @@ describe("personas nav panel", () => {
   // item.focus() (which fires the trigger's blur with relatedTarget set to
   // the item), then item.click() — so it fails under the old handler and
   // passes only because the container-level blur now checks relatedTarget.
-  it("fires New chat and Edit persona from the ⋯ menu despite the trigger losing focus to the item", async () => {
+  it("fires New chat from the ⋯ menu despite the trigger losing focus to the item", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     menuButton.focus();
@@ -500,26 +426,12 @@ describe("personas nav panel", () => {
       path: "personas",
       options: { subPath: "persona_2/new" },
     });
-
-    const reopened = await slot.findByLabelText("More actions");
-    reopened.focus();
-    reopened.click();
-    const editPersonaItem = await slot.findByText("Edit persona");
-    fireEvent.focusOut(reopened, { relatedTarget: editPersonaItem });
-    expect(editPersonaItem.isConnected).toBe(true);
-    editPersonaItem.click();
-
-    expect(slot.inspection.navigateCalls).toContainEqual({
-      method: "toPluginPanel",
-      path: "personas",
-      options: { subPath: "persona_2/edit" },
-    });
     slot.lifecycle.unmount();
   });
 
   it("opens the ⋯ menu, confirms Delete persona, and calls deletePersona", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     menuButton.focus();
@@ -556,7 +468,7 @@ describe("personas nav panel", () => {
 
   it("clamps instructions with a working Show more / Show less toggle", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
 
     const showMore = await slot.findByRole("button", { name: "Show more" });
     showMore.click();
@@ -566,27 +478,34 @@ describe("personas nav panel", () => {
 
   it("renders the header subtitle only when the persona has provider, model, or reasoning to show", async () => {
     const panel = await loadPanel();
-    const configured = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
-    const configuredHeader = (
-      await configured.findByLabelText("Edit persona settings")
-    ).parentElement!;
+    const configured = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
+    const configuredHeader = (await configured.findByLabelText("More actions"))
+      .closest("div.relative")!.parentElement!;
     expect(configuredHeader.textContent).toContain("codex · gpt-5.5 · medium");
     configured.lifecycle.unmount();
 
     // persona_3 is a draft with an empty providerId, an empty model, and a null
     // reasoningLevel, so the joined subtitle must collapse away entirely
     // rather than rendering the separators around missing parts.
-    const draft = renderSlot(panel, { subPath: "persona_3" }, { rpc: RPC });
-    const draftHeader = (
-      await draft.findByLabelText("Edit persona settings")
-    ).parentElement!;
+    const draft = renderSlot(panel, { subPath: "persona_3/new" }, { rpc: RPC });
+    const draftHeader = (await draft.findByLabelText("More actions"))
+      .closest("div.relative")!.parentElement!;
     expect(draftHeader.textContent).not.toContain("·");
     draft.lifecycle.unmount();
   });
 
+  it("shows no gear/settings button anywhere on the persona header", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
+
+    await slot.findByLabelText("More actions");
+    expect(slot.queryByLabelText("Edit persona settings")).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
   it("exposes the ⋯ menu as an ARIA menu, with aria-expanded tracking open state", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
 
     const menuButton = await slot.findByLabelText("More actions");
     expect(menuButton.getAttribute("aria-haspopup")).toBe("menu");
@@ -599,7 +518,7 @@ describe("personas nav panel", () => {
     expect(menuButton.getAttribute("aria-expanded")).toBe("true");
     expect(
       slot.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["New chat", "Edit persona", "Delete persona"]);
+    ).toEqual(["New chat", "Delete persona"]);
 
     slot.lifecycle.unmount();
   });
@@ -770,41 +689,27 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("offers the + Add dropdown's source pickers only when their plugins are available", async () => {
+  it("offers Add Floating Note only while Floating Notes is available", async () => {
     const panel = await loadPanel();
 
-    // Both plugins healthy: the dropdown offers both pickers.
+    // Floating Notes healthy: the dropdown offers the note picker.
     const both = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
     fireEvent.click(
       await both.findByRole("button", { name: "More add options" }),
     );
     await both.findByRole("menuitem", { name: "Add Floating Note" });
-    await both.findByRole("menuitem", { name: "Add Doc" });
     both.lifecycle.unmount();
 
-    // Floating Notes missing: only the Doc picker is offered.
-    const notesMissing = renderSlot(
+    // Floating Notes missing: no dropdown at all — the config screen offers
+    // no Add-note affordance, just the plain typed-text + Add button.
+    const none = renderSlot(
       panel,
       { subPath: "persona_3/edit" },
       { rpc: { ...RPC, getPluginHealth: () => HEALTH_MISSING } },
     );
-    fireEvent.click(
-      await notesMissing.findByRole("button", { name: "More add options" }),
-    );
-    await notesMissing.findByRole("menuitem", { name: "Add Doc" });
-    expect(
-      notesMissing.queryByRole("menuitem", { name: "Add Floating Note" }),
-    ).toBeNull();
-    notesMissing.lifecycle.unmount();
-
-    // Neither plugin available: no dropdown at all, just the plain + Add.
-    const none = renderSlot(
-      panel,
-      { subPath: "persona_3/edit" },
-      { rpc: { ...RPC, getPluginHealth: () => HEALTH_NONE } },
-    );
     await none.findByText("No prompts yet — add one below.");
     expect(none.queryByRole("button", { name: "More add options" })).toBeNull();
+    expect(none.queryByRole("menuitem", { name: "Add Floating Note" })).toBeNull();
     expect(none.queryByRole("button", { name: "+ Add" })).not.toBeNull();
     none.lifecycle.unmount();
   });
@@ -903,44 +808,6 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("adds a Doc from the picker as HTML-escaped prompt text", async () => {
-    const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
-
-    fireEvent.click(
-      await slot.findByRole("button", { name: "More add options" }),
-    );
-    fireEvent.click(await slot.findByRole("menuitem", { name: "Add Doc" }));
-
-    // The picker shows the doc's title and where it lives.
-    await slot.findByText("Release plan");
-    await slot.findByText("Personal · plans/release.md");
-    fireEvent.click(await slot.findByRole("button", { name: /Release plan/ }));
-
-    await waitFor(() => {
-      const readCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "readDoc",
-      );
-      expect(readCall?.input).toEqual({
-        vaultId: "personal",
-        path: "plans/release.md",
-      });
-    });
-    // The doc's markup never reaches the pool as raw HTML.
-    await waitFor(() => {
-      const addCall = slot.inspection.rpcCalls.find(
-        (call) => call.method === "addPersonaPrompt",
-      );
-      expect(addCall?.input).toEqual({
-        personaId: "persona_3",
-        type: "text",
-        text: "# Release plan\n\n&lt;b&gt;Ship&lt;/b&gt; the pool sources.",
-      });
-    });
-
-    slot.lifecycle.unmount();
-  });
-
   it("clears the model and keeps Publish disabled when the picked provider has no models", async () => {
     // Radix's Select needs these; jsdom ships neither.
     Element.prototype.scrollIntoView = () => {};
@@ -991,7 +858,7 @@ describe("personas nav panel", () => {
 
   it("shows a setup callout instead of a composer for a draft persona", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_3" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_3/new" }, { rpc: RPC });
 
     await slot.findByText("Finish setting up this persona");
     await slot.findByText("Set up →");
@@ -1001,7 +868,7 @@ describe("personas nav panel", () => {
 
   it("seeds the host new-thread composer and starts a chat from PersonaHome", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_2" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/new" }, { rpc: RPC });
 
     const composer = await slot.findByTestId("bb-new-thread-composer");
     expect(composer.getAttribute("data-default-provider-id")).toBe("codex");
@@ -1208,6 +1075,37 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
+  it("shows a spinner while a change is persisting, then the saved marker", async () => {
+    const panel = await loadPanel();
+    let resolveSave: (() => void) | undefined;
+    const slot = renderSlot(
+      panel,
+      { subPath: "persona_1/edit" },
+      {
+        rpc: {
+          ...RPC,
+          savePersona: () =>
+            new Promise<{ ok: boolean }>((resolve) => {
+              resolveSave = () => resolve({ ok: true });
+            }),
+        },
+      },
+    );
+
+    const nameInput = await slot.findByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Renamed" } });
+
+    // The save is in flight: the spinner plus "Saving…" shows, and the
+    // saved marker hasn't landed yet.
+    await slot.findByText("Saving…", undefined, { timeout: 3000 });
+    expect(slot.queryByText("Saved ✓")).toBeNull();
+    resolveSave!();
+
+    await slot.findByText("Saved ✓");
+
+    slot.lifecycle.unmount();
+  });
+
   it("the rail's avatars wear each persona's chosen color (and the hash tint when auto)", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "" }, { rpc: RPC });
@@ -1264,7 +1162,7 @@ describe("personas nav panel", () => {
 
   it("fires Pin from a chat row's ⋯ menu despite the trigger losing focus to the item", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     // Two "More actions" triggers exist on this page (the header's and the
@@ -1293,7 +1191,7 @@ describe("personas nav panel", () => {
 
   it("renames a chat inline: Enter commits the trimmed title, Escape cancels, and an unchanged/empty value fires nothing", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButtons = await slot.findAllByLabelText("More actions");
@@ -1356,7 +1254,7 @@ describe("personas nav panel", () => {
     // the invalid-HTML nesting or the real-browser inertness that causes,
     // so this is the assertion that would actually have caught it.
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -1380,7 +1278,7 @@ describe("personas nav panel", () => {
 
   it("calls archive with the chat's threadId from the ⋯ menu", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -1402,7 +1300,7 @@ describe("personas nav panel", () => {
 
   it("calls requestDelete (BB's own confirmation) rather than opening a local dialog", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Chats (1)");
     const menuButton = (await slot.findAllByLabelText("More actions")).at(-1)!;
@@ -1426,7 +1324,7 @@ describe("personas nav panel", () => {
 
   it("hides the Archived section when there are no archived chats", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: RPC });
 
     await slot.findByText("Chats (1)");
     expect(slot.queryByText(/^Archived/)).toBeNull();
@@ -1435,7 +1333,7 @@ describe("personas nav panel", () => {
 
   it("renders the Archived section collapsed by default and shows its rows (with Unarchive/Delete only) once expanded", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Archived (1)");
     expect(slot.queryByText("Buried treasure")).toBeNull();
@@ -1458,7 +1356,7 @@ describe("personas nav panel", () => {
 
   it("calls the unarchiveChat RPC from an archived row's menu", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1" }, { rpc: CHAT_ROW_RPC });
+    const slot = renderSlot(panel, { subPath: "persona_1/new" }, { rpc: CHAT_ROW_RPC });
 
     await slot.findByText("Archived (1)");
     fireEvent.click(slot.getByText("Archived (1)"));
@@ -1496,22 +1394,35 @@ describe("plugin health settings section", () => {
     expect(section.title).toBe("Plugin health");
   });
 
-  it("shows a green check, status, and version for each row when Floating Notes and Docs are installed and enabled", async () => {
+  it("shows a green check, status, and version for the Floating Notes row when it is installed and enabled", async () => {
     const section = await loadSection();
     const slot = renderSlot(section, {}, { rpc: RPC });
 
-    for (const [label, version] of [
-      ["Floating Notes", "1.2.1"],
-      ["Docs", "0.2.3"],
-    ] as const) {
-      const row = (await slot.findByText(label)).closest("li");
-      expect(row).not.toBeNull();
-      const icon = row!.querySelector('[aria-label="Installed and enabled"]');
-      expect(icon?.getAttribute("class")).toContain("text-emerald-600");
-      expect(row!.textContent).toContain(`Running · v${version}`);
-    }
+    const row = (await slot.findByText("Floating Notes")).closest("li");
+    expect(row).not.toBeNull();
+    const icon = row!.querySelector('[aria-label="Installed and enabled"]');
+    expect(icon?.getAttribute("class")).toContain("text-emerald-600");
+    expect(row!.textContent).toContain("Running · v1.2.1");
     expect(slot.queryByText("Install")).toBeNull();
     slot.lifecycle.unmount();
+  });
+
+  it("shows where this install came from, flagging a local in-progress build", async () => {
+    const section = await loadSection();
+
+    // A managed git install: no in-progress marker, raw source on display.
+    const managed = renderSlot(section, {}, { rpc: RPC });
+    await managed.findByText("Personas · v1.9.0");
+    expect(managed.queryByText("Personas · v1.9.0 — in-progress build")).toBeNull();
+    managed.lifecycle.unmount();
+
+    // A path install: the in-progress marker and the local label show.
+    const local = renderSlot(section, {}, {
+      rpc: { ...RPC, getPluginHealth: () => HEALTH_PATH_INSTALL },
+    });
+    await local.findByText("Personas · v1.9.0 — in-progress build");
+    await local.findByText("Local path install — /home/jeff/src/bb-plugin-personas");
+    local.lifecycle.unmount();
   });
 
   it("shows a red X, 'Not installed', and an install link to the bb plugin page when Floating Notes is missing", async () => {
@@ -1527,32 +1438,6 @@ describe("plugin health settings section", () => {
     const installLink = slot.getByRole("link", { name: "Install" });
     expect(installLink.getAttribute("href")).toBe(
       "https://github.com/vburojevic/bb-plugin-floating-notes",
-    );
-    expect(installLink.getAttribute("target")).toBe("_blank");
-
-    // Docs keeps its green check while Floating Notes is missing.
-    const docsRow = (await slot.findByText("Docs")).closest("li");
-    expect(
-      docsRow!.querySelector('[aria-label="Installed and enabled"]'),
-    ).not.toBeNull();
-    slot.lifecycle.unmount();
-  });
-
-  it("shows a red X and an install link to the official Docs plugin page when Docs is missing", async () => {
-    const section = await loadSection();
-    const slot = renderSlot(section, {}, {
-      rpc: { ...RPC, getPluginHealth: () => HEALTH_DOCS_MISSING },
-    });
-
-    const docsRow = (await slot.findByText("Docs")).closest("li");
-    expect(docsRow).not.toBeNull();
-    const icon = docsRow!.querySelector('[aria-label="Not available"]');
-    expect(icon?.getAttribute("class")).toContain("text-destructive");
-    expect(docsRow!.textContent).toContain("Not installed");
-
-    const installLink = slot.getByRole("link", { name: "Install" });
-    expect(installLink.getAttribute("href")).toBe(
-      "https://github.com/get-bb/bb/tree/main/plugins/docs",
     );
     expect(installLink.getAttribute("target")).toBe("_blank");
     slot.lifecycle.unmount();

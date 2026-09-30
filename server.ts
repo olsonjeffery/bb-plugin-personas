@@ -27,11 +27,9 @@ import {
   type PersonaPromptRow,
   type PersonaRow,
 } from "./personas.js";
-import { pluginHealth } from "./plugin-health.js";
+import { pluginHealth, selfInstallLabel } from "./plugin-health.js";
 import {
-  DOCS_PLUGIN_ID,
   FLOATING_NOTES_PLUGIN_ID,
-  isDocsAvailable,
   isFloatingNotesAvailable,
 } from "./plugin-health.js";
 
@@ -135,56 +133,12 @@ const FloatingNotesListOutput = z.object({
   ),
 });
 
-// What we read out of the Docs plugin's listNotes: the vault list (to find
-// the global vaults), the one vault the call itself resolved, and that
-// vault's note summaries.
-const DocsListOutput = z.object({
-  vaults: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      hostId: z.string().nullable(),
-    }),
-  ),
-  vault: z.object({
-    id: z.string(),
-    name: z.string(),
-    hostId: z.string().nullable(),
-  }),
-  notes: z.array(
-    z.object({
-      path: z.string(),
-      title: z.string(),
-      preview: z.string(),
-      modifiedAtMs: z.number(),
-    }),
-  ),
-  // The Docs plugin reports a failed vault scan here instead of throwing.
-  error: z.string().nullable(),
-});
-
-// What we read out of the Docs plugin's readNote.
-const DocsReadOutput = z.object({
-  content: z.string(),
-  contentEncoding: z.enum(["utf8", "base64"]),
-});
-
 /** One attachable Floating Note, as the picker modal sees it. */
 const FloatingNoteSchema = z.object({
   id: z.string(),
   title: z.string(),
   body: z.string(),
   updatedAt: z.number(),
-});
-
-/** One attachable Docs document, as the picker modal sees it. */
-const DocSchema = z.object({
-  vaultId: z.string(),
-  vaultName: z.string(),
-  path: z.string(),
-  title: z.string(),
-  preview: z.string(),
-  modifiedAtMs: z.number(),
 });
 
 // Mirrors the host's `promptInputSchema` (bb-plugin-sdk-app.d.ts) exactly.
@@ -376,6 +330,14 @@ export const rpcContract = defineRpcContract({
     output: z.object({
       floatingNotesAvailable: z.boolean(),
       tools: z.array(ToolHealthSchema),
+      self: z.object({
+        version: z.string().nullable(),
+        source: z.string().nullable(),
+        managed: z.boolean(),
+        // Human-readable: "Local path install — /home/…" or the raw managed
+        // source string. Null when the install source couldn't be read.
+        sourceLabel: z.string().nullable(),
+      }),
     }),
   },
   // Every active Floating Note, for the editor's "Add Floating Note" picker.
@@ -384,18 +346,6 @@ export const rpcContract = defineRpcContract({
   listFloatingNotes: {
     input: z.null(),
     output: z.object({ notes: z.array(FloatingNoteSchema) }),
-  },
-  // Every document in the Docs plugin's global vaults (the vaults that live
-  // on this machine rather than a connected host), for the editor's
-  // "Add Doc" picker.
-  listDocs: {
-    input: z.null(),
-    output: z.object({ docs: z.array(DocSchema) }),
-  },
-  // One document's content, read at attach time so it can become prompt text.
-  readDoc: {
-    input: z.object({ vaultId: z.string(), path: z.string() }).strict(),
-    output: z.object({ content: z.string() }),
   },
 });
 
@@ -629,13 +579,6 @@ export default async function plugin(bb: BbPluginApi) {
     const { plugins } = await bb.sdk.plugins.list();
     if (!isFloatingNotesAvailable(plugins)) {
       throw new Error("Floating Notes is not installed and enabled");
-    }
-  }
-
-  async function assertDocsAvailable(): Promise<void> {
-    const { plugins } = await bb.sdk.plugins.list();
-    if (!isDocsAvailable(plugins)) {
-      throw new Error("Docs is not installed and enabled");
     }
   }
 
@@ -1092,7 +1035,17 @@ export default async function plugin(bb: BbPluginApi) {
     // isFloatingNotesAvailable (plugin-health.ts) against the same list.
     getPluginHealth: async () => {
       const { plugins } = await bb.sdk.plugins.list();
-      return pluginHealth(plugins);
+      const health = pluginHealth(plugins, bb.pluginId);
+      return {
+        ...health,
+        self: {
+          ...health.self,
+          sourceLabel:
+            health.self.source === null
+              ? null
+              : selfInstallLabel(health.self.source),
+        },
+      };
     },
 
     // -- Prompt-pool sources -------------------------------------------------
@@ -1112,85 +1065,6 @@ export default async function plugin(bb: BbPluginApi) {
         (a, b) => b.updatedAt - a.updatedAt,
       );
       return { notes };
-    },
-
-    // Every document in the Docs plugin's global vaults — the vaults that live
-    // on this machine rather than on a connected host — newest first.
-    listDocs: async () => {
-      await assertDocsAvailable();
-      const callDocsListNotes = (input: { vaultId?: string }) =>
-        bb.sdk.plugins.callRpc({
-          pluginId: DOCS_PLUGIN_ID,
-          method: "listNotes",
-          input,
-          outputSchema: DocsListOutput,
-        });
-      // One call with no vaultId both enumerates every vault and reads the
-      // default one, so enumerating the vaults costs no extra round trip.
-      const overview = await callDocsListNotes({});
-      const globalVaults = overview.vaults.filter(
-        (vault) => vault.hostId === null,
-      );
-      const docs: {
-        vaultId: string;
-        vaultName: string;
-        path: string;
-        title: string;
-        preview: string;
-        modifiedAtMs: number;
-      }[] = [];
-      for (const vault of globalVaults) {
-        // The overview already read the default vault; only the remaining
-        // global vaults pay for their own scan.
-        const isDefault = vault.id === overview.vault.id;
-        let listed: z.infer<typeof DocsListOutput>;
-        try {
-          listed = isDefault
-            ? overview
-            : await callDocsListNotes({ vaultId: vault.id });
-        } catch (cause) {
-          bb.log.warn(
-            `skipping docs vault ${vault.id}: ${cause instanceof Error ? cause.message : String(cause)}`,
-          );
-          continue;
-        }
-        // The Docs plugin reports a failed vault scan here instead of
-        // throwing; an unreadable vault just contributes no docs.
-        if (listed.error !== null) {
-          bb.log.warn(`skipping docs vault ${vault.id}: ${listed.error}`);
-          continue;
-        }
-        for (const note of listed.notes) {
-          docs.push({
-            vaultId: vault.id,
-            vaultName: vault.name,
-            path: note.path,
-            title: note.title,
-            preview: note.preview,
-            modifiedAtMs: note.modifiedAtMs,
-          });
-        }
-      }
-      docs.sort((a, b) => b.modifiedAtMs - a.modifiedAtMs);
-      return { docs };
-    },
-
-    // One document's content at attach time; the caller sanitizes and clamps
-    // it into prompt text. Content arrives utf8 for markdown; a base64
-    // encoding is decoded so the caller always sees plain text.
-    readDoc: async ({ vaultId, path }) => {
-      await assertDocsAvailable();
-      const file = await bb.sdk.plugins.callRpc({
-        pluginId: DOCS_PLUGIN_ID,
-        method: "readNote",
-        input: { vaultId, path },
-        outputSchema: DocsReadOutput,
-      });
-      const content =
-        file.contentEncoding === "base64"
-          ? Buffer.from(file.content, "base64").toString("utf8")
-          : file.content;
-      return { content };
     },
   });
 

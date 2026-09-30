@@ -57,14 +57,8 @@ export function PersonaChatView({
         <PersonaHeader
           persona={persona}
           onBack={onBack}
-          onSettings={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
-          }
           onNewChat={() =>
             navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/new` })
-          }
-          onEditPersona={() =>
-            navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
           }
           onDeletePersona={() => void remove()}
           onGoToPersonaPage={() =>

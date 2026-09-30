@@ -254,21 +254,6 @@ export function promptPreview(text: string): string {
 }
 
 /**
- * HTML-escapes the five characters that carry meaning in markup, so content
- * pulled in from elsewhere (a Docs document, which is free to hold raw HTML)
- * can never inject markup wherever prompt text is rendered. The pool-entry
- * display and the joined instruction block stay plain text.
- */
-export function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-/**
  * The blob stored in a note prompt's `text` column: a JSON object naming the
  * Floating Note it points at by durable id. Titles change; ids don't. The
  * `kind` discriminant is what marks the blob (with the prompt's `type`) so

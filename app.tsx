@@ -102,14 +102,17 @@ function PersonasPanel({ subPath }: PluginNavPanelProps) {
         </DocumentPane>
       );
       break;
+    case "persona":
     case "edit":
+      // The persona detail page IS the live edit: clicking a persona in the
+      // rail lands straight in its editor (every field autosaves), so there
+      // is no separate settings/config screen to gear into.
       content = (
         <DocumentPane onBack={onBack}>
           <PersonaEditor personaId={route.personaId} />
         </DocumentPane>
       );
       break;
-    case "persona":
     case "newChat":
       content = <PersonaHome personaId={route.personaId} onBack={onBack} />;
       break;
@@ -157,10 +160,11 @@ export default definePluginApp((app) => {
     component: PersonasPanel,
   });
 
-  // The Personas settings page: a Plugin health box listing the other
-  // plugins this one cooperates with (currently Floating Notes and the
-  // official Docs plugin), with a green check when one is installed and
-  // enabled and an install link to its bb plugin page while it is missing.
+  // The Personas settings page: an install-source row (local in-progress
+  // checkout vs managed/official install) plus a Plugin health box listing
+  // the other plugins this one cooperates with (Floating Notes), with a
+  // green check when it is installed and enabled and an install link to its
+  // bb plugin page while it is missing.
   app.slots.settingsSection({
     id: "plugin-health",
     title: "Plugin health",

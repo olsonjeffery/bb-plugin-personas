@@ -1,14 +1,14 @@
 // Pure policy tests for plugin-health.ts — which installed-plugin states
-// count as available, and when the install link appears. The RPC-level path
-// (one fresh plugins.list read per call) is covered in server.test.ts.
+// count as available, when the install link appears, and how the install
+// source row reads. The RPC-level path (one fresh plugins.list read per call)
+// is covered in server.test.ts.
 import { describe, expect, it } from "vitest";
 import {
-  DOCS_PLUGIN_ID,
-  DOCS_PLUGIN_URL,
   FLOATING_NOTES_PLUGIN_ID,
   FLOATING_NOTES_PLUGIN_URL,
   isFloatingNotesAvailable,
   pluginHealth,
+  selfInstallLabel,
   type InstalledPluginSummary,
 } from "./plugin-health.js";
 
@@ -76,47 +76,68 @@ describe("pluginHealth", () => {
   });
 });
 
-describe("pluginHealth docs row", () => {
-  // Docs is official and ships with bb, so an absent row is unusual but the
-  // same rule as Floating Notes applies — present, enabled, no hard failure.
-  it("is available when Docs is installed, enabled, and running", () => {
-    const docs = pluginHealth([makePlugin({ id: DOCS_PLUGIN_ID })]).tools[1]!;
-    expect(docs).toMatchObject({
-      id: DOCS_PLUGIN_ID,
-      label: "Docs",
-      installed: true,
-      enabled: true,
-      available: true,
-      installUrl: null,
+describe("pluginHealth self install source", () => {
+  it("reads the self row's source and version when passed a selfId", () => {
+    const report = pluginHealth([
+      makePlugin({ id: "personas", source: "path:/home/jeff/src/bb-proj/bb-plugin-personas" }),
+    ], "personas");
+    expect(report.self).toEqual({
+      version: "1.2.1",
+      source: "path:/home/jeff/src/bb-proj/bb-plugin-personas",
+      managed: false,
     });
   });
 
-  it("carries the official plugin page link only while Docs is missing", () => {
-    const docs = pluginHealth([]).tools[1]!;
-    expect(docs).toMatchObject({
-      id: DOCS_PLUGIN_ID,
-      label: "Docs",
-      installed: false,
-      available: false,
-      installUrl: DOCS_PLUGIN_URL,
-    });
-
-    const present = pluginHealth([makePlugin({ id: DOCS_PLUGIN_ID })])
-      .tools[1]!;
-    expect(present.installUrl).toBeNull();
-    expect(present.installed).toBe(true);
+  it("counts git, npm, and builtin sources as managed installs", () => {
+    for (const source of [
+      "git:https://github.com/olsonjeffery/bb-plugin-personas.git@semver:^1.0.0",
+      "npm:bb-plugin-personas@1.0.0",
+      "builtin:personas",
+    ]) {
+      const report = pluginHealth(
+        [makePlugin({ id: "personas", source })],
+        "personas",
+      );
+      expect(report.self.managed).toBe(true);
+      expect(report.self.source).toBe(source);
+    }
   });
 
-  it("is unavailable when Docs is installed but disabled", () => {
-    const docs = pluginHealth([
-      makePlugin({ id: DOCS_PLUGIN_ID, enabled: false, status: "disabled" }),
-    ]).tools[1]!;
-    expect(docs).toMatchObject({
-      installed: true,
-      enabled: false,
-      available: false,
-      // Installed, so no install link — enable it instead.
-      installUrl: null,
+  it("degrades to nulls when the self row is absent from the list", () => {
+    const report = pluginHealth([makePlugin({})], "personas");
+    expect(report.self).toEqual({
+      version: null,
+      source: null,
+      managed: false,
     });
+  });
+
+  it("ignores another plugin's row even when selfId is omitted", () => {
+    const report = pluginHealth([makePlugin({})]);
+    expect(report.self.source).toBeNull();
+  });
+});
+
+describe("selfInstallLabel", () => {
+  it("marks a path install as the local in-progress checkout", () => {
+    expect(selfInstallLabel("path:/home/jeff/src/bb-proj/bb-plugin-personas")).toBe(
+      "Local path install — /home/jeff/src/bb-proj/bb-plugin-personas",
+    );
+  });
+
+  it("names the builtin origin", () => {
+    expect(selfInstallLabel("builtin:personas")).toBe(
+      "Ships with BB (builtin:personas)",
+    );
+  });
+
+  it("passes managed sources through verbatim", () => {
+    expect(
+      selfInstallLabel(
+        "git:https://github.com/olsonjeffery/bb-plugin-personas.git@semver:^1.0.0",
+      ),
+    ).toBe(
+      "git:https://github.com/olsonjeffery/bb-plugin-personas.git@semver:^1.0.0",
+    );
   });
 });
