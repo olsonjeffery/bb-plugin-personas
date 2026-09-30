@@ -122,6 +122,19 @@ export function isFloatingNotesAvailable(
 }
 
 /**
+ * Whether Docs is available, for server-side callers that already hold a
+ * plugins list. Companion to isFloatingNotesAvailable; both share the single
+ * availability rule (installed, enabled, not in a hard-failure status).
+ */
+export function isDocsAvailable(
+  plugins: readonly InstalledPluginSummary[],
+): boolean {
+  return isAvailable(
+    plugins.find((plugin) => plugin.id === DOCS_PLUGIN_ID),
+  );
+}
+
+/**
  * The full health report the settings page shows: one row per cooperating
  * plugin, Floating Notes first; later entries just append.
  */

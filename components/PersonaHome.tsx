@@ -85,7 +85,7 @@ export function PersonaHeader({
           <Icon name="ChevronLeft" aria-hidden />
         </button>
       )}
-      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} size="sm" />
+      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} color={persona.color} size="sm" />
       <div className="min-w-0 flex-1">
         {onGoToPersonaPage === undefined ? (
           <p className="truncate text-sm font-medium">{displayName(persona)}</p>

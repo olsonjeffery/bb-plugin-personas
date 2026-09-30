@@ -1,30 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
+  avatarTint,
   clampPromptText,
+  decodeNotePromptRef,
   displayName,
   draftBlockers,
   emojiPickerHint,
+  encodeNotePromptRef,
   EMOJI_GROUPS,
   EMOJIS,
-  hasPromptConflict,
+  escapeHtml,
   INSTRUCTION_LIMIT,
+  isPersonaColor,
   isSingleEmoji,
   joinedPromptText,
   MAX_INSTRUCTIONS,
   MAX_PROMPT_TEXT,
   newPromptId,
+  NOTE_UNAVAILABLE_TEXT,
   normalizeEmoji,
   parseRoute,
+  personaColorTint,
+  PERSONA_COLORS,
   pickEmoji,
   PROMPT_PREVIEW_LIMIT,
   promptPreview,
   previewInstructions,
   REASONING_LEVELS,
   renderPersonaInstructions,
+  resolvePromptTexts,
+  resolvedPromptText,
   routeToSubPath,
   rowToPersona,
   rowToPrompt,
   sortChats,
+  tintFor,
   type Persona,
   type PersonaPrompt,
   type PersonaPromptRow,
@@ -35,6 +45,7 @@ const persona: Persona = {
   id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
+  color: null,
   prompts: [
     {
       id: "prompt_1",
@@ -224,6 +235,38 @@ describe("pickEmoji", () => {
   });
 });
 
+describe("avatar colors", () => {
+  it("wears the chosen color's tint; auto stays on the id-hash tint", () => {
+    expect(avatarTint("persona_1", "rose")).toBe(personaColorTint("rose"));
+    expect(avatarTint("persona_1", null)).toBe(tintFor("persona_1"));
+  });
+
+  it("every palette color has its own theme-aware tint classes", () => {
+    for (const candidate of PERSONA_COLORS) {
+      const tint = personaColorTint(candidate);
+      expect(tint).toContain(`bg-${candidate}-500/15`);
+      expect(tint).toContain(`text-${candidate}-600`);
+      expect(tint).toContain(`dark:text-${candidate}-400`);
+    }
+  });
+
+  it("tintFor is stable per persona id and stays inside the palette", () => {
+    expect(tintFor("persona_1")).toBe(tintFor("persona_1"));
+    expect(tintFor("persona_2")).toBe(tintFor("persona_2"));
+    const allTints = PERSONA_COLORS.map((candidate) => personaColorTint(candidate));
+    expect(allTints).toContain(tintFor("persona_1"));
+  });
+
+  it("isPersonaColor accepts the palette and rejects everything else", () => {
+    for (const candidate of PERSONA_COLORS) {
+      expect(isPersonaColor(candidate)).toBe(true);
+    }
+    expect(isPersonaColor("scarlet")).toBe(false);
+    expect(isPersonaColor(null)).toBe(false);
+    expect(isPersonaColor(42)).toBe(false);
+  });
+});
+
 describe("EMOJI_GROUPS", () => {
   it("flattens to exactly EMOJIS, in the same order (anti-drift guard)", () => {
     expect(EMOJI_GROUPS.flatMap((group) => group.emojis)).toEqual(EMOJIS);
@@ -401,6 +444,7 @@ describe("rowToPersona", () => {
     id: "persona_1",
     name: "Pirate",
     emoji: "🏴‍☠️",
+    color: null,
     instructions: "Always answer in pirate speak.",
     provider_id: "codex",
     model: "gpt-5.5",
@@ -410,6 +454,12 @@ describe("rowToPersona", () => {
     created_at: 0,
     updated_at: 0,
   };
+
+  it("keeps a chosen color and reads an unrecognized stored color as auto", () => {
+    expect(rowToPersona({ ...row, color: "rose" }, []).color).toBe("rose");
+    expect(rowToPersona({ ...row, color: "scarlet" }, []).color).toBeNull();
+    expect(rowToPersona({ ...row, color: null }, []).color).toBeNull();
+  });
 
   it("keeps a reasoning level that is in the union", () => {
     expect(REASONING_LEVELS).toContain("medium");
@@ -451,9 +501,30 @@ describe("rowToPrompt", () => {
   });
 
   it("reads any unrecognized stored type as text", () => {
-    // "text" is the only prompt type so far; a future downgrade must not
-    // push an unknown string uncaught into the prompt RPCs' zod schemas.
+    // A future downgrade must not push an unknown string uncaught into the
+    // prompt RPCs' zod schemas.
     expect(rowToPrompt({ ...row, type: "voice" }).type).toBe("text");
+  });
+
+  it("reads a note row as a note prompt, keeping the stored reference body", () => {
+    const note = rowToPrompt({
+      ...row,
+      type: "note",
+      text: encodeNotePromptRef("note_abc123"),
+    });
+    expect(note).toMatchObject({ type: "note" });
+    expect(decodeNotePromptRef(note.text)).toEqual({
+      kind: "floating-note",
+      noteId: "note_abc123",
+    });
+  });
+
+  it("degrades a note row whose body is no longer a decodable reference", () => {
+    // Hand-edited or corrupted: reads as an ordinary text prompt so its raw
+    // body stays visible and editable instead of crashing the read.
+    expect(rowToPrompt({ ...row, type: "note", text: "not a blob" }).type).toBe(
+      "text",
+    );
   });
 });
 
@@ -480,51 +551,109 @@ describe("clampPromptText", () => {
 
 describe("promptPreview", () => {
   it("passes text at or under the preview limit through unchanged", () => {
-    expect(PROMPT_PREVIEW_LIMIT).toBe(24);
+    expect(PROMPT_PREVIEW_LIMIT).toBe(50);
     expect(promptPreview("Be terse.")).toBe("Be terse.");
     expect(promptPreview("x".repeat(PROMPT_PREVIEW_LIMIT))).toBe(
       "x".repeat(PROMPT_PREVIEW_LIMIT),
     );
   });
 
-  it("truncates overflow to the first 24 characters plus an ellipsis", () => {
+  it("truncates overflow to the first 50 characters plus an ellipsis", () => {
     expect(promptPreview(`${"x".repeat(PROMPT_PREVIEW_LIMIT)}y`)).toBe(
       `${"x".repeat(PROMPT_PREVIEW_LIMIT)}…`,
     );
   });
 });
 
-describe("hasPromptConflict", () => {
-  it("conflicts when the first 24 characters are identical even though the tails differ", () => {
-    expect(
-      hasPromptConflict([`${"a".repeat(PROMPT_PREVIEW_LIMIT)} one`], `${"a".repeat(PROMPT_PREVIEW_LIMIT)} two`),
-    ).toBe(true);
+describe("encodeNotePromptRef / decodeNotePromptRef", () => {
+  it("round-trips a durable note id", () => {
+    expect(decodeNotePromptRef(encodeNotePromptRef("note_abc123"))).toEqual({
+      kind: "floating-note",
+      noteId: "note_abc123",
+    });
   });
 
-  it("conflicts on two identical short prompts", () => {
-    expect(hasPromptConflict(["Be terse."], "Be terse.")).toBe(true);
+  it("rejects ordinary prose, non-JSON, and malformed blobs", () => {
+    expect(decodeNotePromptRef("Always answer in pirate speak.")).toBeNull();
+    expect(decodeNotePromptRef("not json")).toBeNull();
+    expect(decodeNotePromptRef('{"kind":"doc","noteId":"n"}')).toBeNull();
+    expect(decodeNotePromptRef('{"kind":"floating-note"}')).toBeNull();
+    expect(decodeNotePromptRef('{"kind":"floating-note","noteId":42}')).toBeNull();
+    expect(decodeNotePromptRef('{"kind":"floating-note","noteId":""}')).toBeNull();
+    expect(decodeNotePromptRef("null")).toBeNull();
+  });
+});
+
+describe("resolvedPromptText / resolvePromptTexts", () => {
+  const bodies = new Map([["note_live", "Feed crackers twice a day."]]);
+  const textPrompt = (id: string): PersonaPrompt => ({
+    id,
+    personaId: "persona_1",
+    type: "text",
+    text: "Always answer in pirate speak.",
+    position: 0,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const notePrompt = (id: string, noteId: string): PersonaPrompt => ({
+    id,
+    personaId: "persona_1",
+    type: "note",
+    text: encodeNotePromptRef(noteId),
+    position: 1,
+    createdAt: 0,
+    updatedAt: 0,
   });
 
-  it("does not conflict when the 24th character differs", () => {
-    expect(
-      hasPromptConflict(
-        ["a".repeat(PROMPT_PREVIEW_LIMIT - 1) + "x"],
-        "a".repeat(PROMPT_PREVIEW_LIMIT - 1) + "y",
-      ),
-    ).toBe(false);
+  it("a text prompt is its own text; a note prompt is its note's live body", () => {
+    expect(resolvedPromptText(textPrompt("prompt_1"), bodies)).toBe(
+      "Always answer in pirate speak.",
+    );
+    expect(resolvedPromptText(notePrompt("prompt_2", "note_live"), bodies)).toBe(
+      "Feed crackers twice a day.",
+    );
   });
 
-  it("ignores surrounding whitespace when comparing", () => {
-    expect(
-      hasPromptConflict(
-        [`   ${"b".repeat(PROMPT_PREVIEW_LIMIT)} tail`],
-        "b".repeat(PROMPT_PREVIEW_LIMIT),
-      ),
-    ).toBe(true);
+  it("a note whose body isn't known resolves to the unavailable marker", () => {
+    expect(resolvedPromptText(notePrompt("prompt_2", "note_gone"), bodies)).toBe(
+      NOTE_UNAVAILABLE_TEXT,
+    );
   });
 
-  it("returns false for an empty pool", () => {
-    expect(hasPromptConflict([], "Anything.")).toBe(false);
+  it("resolvePromptTexts leaves text prompts untouched and only swaps note bodies", () => {
+    const resolved = resolvePromptTexts(
+      [textPrompt("prompt_1"), notePrompt("prompt_2", "note_live")],
+      bodies,
+    );
+    expect(resolved[0]).toEqual(textPrompt("prompt_1"));
+    expect(resolved[1]).toEqual({
+      ...notePrompt("prompt_2", "note_live"),
+      text: "Feed crackers twice a day.",
+    });
+  });
+});
+
+describe("escapeHtml", () => {
+  it("escapes the five characters that carry meaning in markup", () => {
+    expect(escapeHtml(`<a href="x" class='y'>&</a>`)).toBe(
+      "&lt;a href=&quot;x&quot; class=&#39;y&#39;&gt;&amp;&lt;/a&gt;",
+    );
+  });
+
+  it("passes plain text through unchanged", () => {
+    expect(escapeHtml("Always answer in pirate speak.")).toBe(
+      "Always answer in pirate speak.",
+    );
+  });
+
+  it("escapes every occurrence, not just the first", () => {
+    expect(escapeHtml("a & b & c")).toBe("a &amp; b &amp; c");
+  });
+
+  it("escapes ampersands first so entities never nest", () => {
+    // "&amp;" in the source must not become "&amp;amp;" — but "&lt;" must,
+    // because the source really held a less-than sign.
+    expect(escapeHtml("&amp;&lt;")).toBe("&amp;amp;&amp;lt;");
   });
 });
 

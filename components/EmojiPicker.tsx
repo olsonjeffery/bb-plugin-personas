@@ -12,7 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { EMOJI_GROUPS, emojiPickerHint, isSingleEmoji, normalizeEmoji } from "@/personas";
+import {
+  EMOJI_GROUPS,
+  emojiPickerHint,
+  isSingleEmoji,
+  normalizeEmoji,
+  personaColorTint,
+  PERSONA_COLORS,
+  type PersonaColor,
+} from "@/personas";
 import type { ReactNode } from "react";
 
 /**
@@ -41,10 +49,19 @@ export function EmojiPicker({
   value,
   onChange,
   children,
+  color = null,
+  onColorChange,
+  autoTint,
 }: {
   value: string;
   onChange: (emoji: string) => void;
   children: ReactNode;
+  /** The persona's chosen color; shown selected when the palette renders. */
+  color?: PersonaColor | null;
+  /** Providing this renders the color palette alongside the emoji grid. */
+  onColorChange?: (color: PersonaColor | null) => void;
+  /** The classes the "Auto" swatch wears (the id-hash tint) — the editor passes tintFor(id). */
+  autoTint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [customValue, setCustomValue] = useState("");
@@ -59,6 +76,12 @@ export function EmojiPicker({
   function pick(emoji: string) {
     onChange(emoji);
     setOpen(false);
+  }
+
+  function pickColor(next: PersonaColor | null) {
+    // Picking a color never closes the dialog: a color and an emoji are
+    // picked together, and colors are cheap to try on and swap.
+    onColorChange?.(next);
   }
 
   function useCustom() {
@@ -94,7 +117,9 @@ export function EmojiPicker({
         <DialogHeader>
           <DialogTitle>Choose an icon</DialogTitle>
           <DialogDescription>
-            Pick one, or paste your own.
+            {onColorChange === undefined
+              ? "Pick one, or paste your own."
+              : "Pick an emoji and a color, or paste your own."}
           </DialogDescription>
         </DialogHeader>
 
@@ -127,6 +152,49 @@ export function EmojiPicker({
             </div>
           ))}
         </div>
+
+        {onColorChange === undefined ? null : (
+          <div className="flex flex-col gap-1.5">
+            <div className="text-xs text-muted-foreground">Color</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={color === null}
+                aria-label="Color: Auto"
+                title="Auto — a stable tint from the persona's id"
+                onClick={() => pickColor(null)}
+                className={cn(
+                  "flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-[10px] font-semibold hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  autoTint,
+                  color === null && "ring-1 ring-ring",
+                )}
+              >
+                A
+              </button>
+              {PERSONA_COLORS.map((candidate) => {
+                const selected = color === candidate;
+                const label = candidate[0]!.toUpperCase() + candidate.slice(1);
+                return (
+                  <button
+                    key={candidate}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`Color: ${label}`}
+                    title={label}
+                    onClick={() => pickColor(candidate)}
+                    className={cn(
+                      "h-7 w-7 cursor-pointer rounded-full hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                      personaColorTint(candidate),
+                      selected && "ring-1 ring-ring",
+                    )}
+                  >
+                    <span className="sr-only">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="emoji-picker-custom" className="text-xs text-muted-foreground">

@@ -183,7 +183,7 @@ export function PersonaRail({ selectedPersonaId }: { selectedPersonaId: string |
                         isDraft ? "text-muted-foreground" : "",
                       )}
                     >
-                      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} size="sm" />
+                      <PersonaAvatar personaId={persona.id} emoji={persona.emoji} color={persona.color} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span className="truncate text-sm font-medium">
