@@ -116,7 +116,7 @@ wear.
 A persona's standing instructions live in its prompt pool. The editor lists every
 prompt as an entry — the first 50 characters plus an ellipsis when the text is
 longer — with **Edit** and **Remove** buttons beside it. Type a prompt into the
-text box (up to 3500 characters) and click **+ Add** to put it in the pool.
+text box (up to 1000 characters) and click **+ Add** to put it in the pool.
 
 The pool is yours to curate: duplicates are allowed, and every entry keeps its
 own durable id independent of its display text.

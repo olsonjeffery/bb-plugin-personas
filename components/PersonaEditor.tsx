@@ -35,7 +35,7 @@ import {
   displayName,
   draftBlockers,
   MAX_NAME,
-  MAX_PROMPT_TEXT,
+  MAX_TEXT_INPUT,
   pickEmoji,
   promptPreview,
   tintFor,
@@ -624,8 +624,8 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
           id="persona-prompt-text"
           aria-label="Text prompt"
           value={promptDraft}
-          rows={4}
-          maxLength={MAX_PROMPT_TEXT}
+          rows={2}
+          maxLength={MAX_TEXT_INPUT}
           placeholder="A standing prompt, e.g. Always answer in exaggerated pirate speak."
           onChange={(event) => {
             setPromptDraft(event.target.value);
@@ -634,7 +634,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
         />
         <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
-            {promptDraft.length} / {MAX_PROMPT_TEXT}
+            {promptDraft.length} / {MAX_TEXT_INPUT}
           </span>
           <div className="flex items-center gap-2">
             {editingPromptId !== null ? (
