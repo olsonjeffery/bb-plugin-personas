@@ -25,19 +25,15 @@ import {
 import { PersonaAvatar } from "@/components/PersonaAvatar";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import {
-  DocPickerDialog,
   FloatingNotePickerDialog,
-  type AttachableDoc,
   type AttachableNote,
 } from "@/components/PromptSourcePicker";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
-import { DOCS_PLUGIN_ID } from "@/plugin-health";
 import {
   clampPromptText,
   displayName,
   draftBlockers,
-  escapeHtml,
   MAX_NAME,
   MAX_PROMPT_TEXT,
   pickEmoji,
@@ -151,10 +147,11 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [isPoolBusy, setIsPoolBusy] = useState(false);
-  // The + Add dropdown: open while its menu shows, holding the picker the
-  // user asked for ("note" / "doc") once a menu item is picked.
+  // The + Add dropdown: open while its menu shows. The only source picker
+  // left is Floating Notes; the menu (and the dropdown affordance) vanishes
+  // entirely when that plugin is unavailable.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const [picker, setPicker] = useState<"note" | "doc" | null>(null);
+  const [picker, setPicker] = useState<"note" | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
 
   const options = data?.[0] ?? null;
@@ -162,11 +159,9 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const health = data?.[2] ?? null;
 
   // Same one-plugin rule the server-side source RPCs gate on; the menu only
-  // offers a picker whose plugin is actually there.
+  // offers a picker whose plugin is actually there. Floating Notes missing
+  // means the config screen offers no Add-note affordance at all.
   const floatingNotesAvailable = health?.floatingNotesAvailable ?? false;
-  const docsAvailable =
-    health?.tools.find((tool) => tool.id === DOCS_PLUGIN_ID)?.available ??
-    false;
 
   // The baseline autosave diffs new edits against — the fields the server
   // actually has. Deliberately separate from form state: seeding a fresh
@@ -360,8 +355,9 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const selectedModel = available.find((candidate) => candidate.id === model);
   const isDraft = persona.status === "draft";
   const prompts = persona.prompts;
-  // Whether the + Add dropdown has anything to offer at all.
-  const hasPromptSources = floatingNotesAvailable || docsAvailable;
+  // Whether the + Add dropdown exists at all: it does only while Floating
+  // Notes is available; a missing plugin means no Add-note affordance.
+  const hasPromptSources = floatingNotesAvailable;
 
   // Blockers reflect what's on screen right now, not the last save that
   // landed — otherwise Publish would only enable after a round trip.
@@ -405,12 +401,18 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     }
   }
 
+  // The detail view is a live edit: "Done" just flushes any pending autosave
+  // and hands over to the persona's home page (composer + chats). The save
+  // itself already happened on every keystroke.
   async function saveAndClose() {
     setIsBusy(true);
     try {
       flushPendingSave();
       await runSave();
-      navigate.toPluginPanel(PANEL_PATH, { subPath: personaId, replace: true });
+      navigate.toPluginPanel(PANEL_PATH, {
+        subPath: `${personaId}/new`,
+        replace: true,
+      });
     } finally {
       setIsBusy(false);
     }
@@ -468,35 +470,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
 
   // -- Prompt-pool sources ----------------------------------------------------
 
-  /** Reports a rejected attachment: inline under the pool, and as a toast. */
-  function reportPoolError(message: string): void {
-    setPromptError(message);
-    toast.error(message);
-  }
-
-  /**
-   * Shared tail of the Doc attachment path: add the (sanitized) text as a
-   * plain text prompt. The picker is already closed by the time this runs —
-   * selecting an entry is what dismisses it. No uniqueness rule: the pool is
-   * the user's to curate.
-   */
-  async function addPoolText(sourceLabel: string, text: string): Promise<void> {
-    const clamped = clampPromptText(text);
-    if (clamped.length === 0) {
-      reportPoolError(`That ${sourceLabel} is empty.`);
-      return;
-    }
-    setIsPoolBusy(true);
-    try {
-      await rpc.call("addPersonaPrompt", { personaId, type: "text", text: clamped });
-      reload();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setIsPoolBusy(false);
-    }
-  }
-
   /**
    * Attaches a Floating Note as a live reference, not a copy: the pool entry
    * keeps the note's durable id, and its displayed/injected text always
@@ -519,38 +492,28 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       .finally(() => setIsPoolBusy(false));
   }
 
-  async function attachDoc(doc: AttachableDoc): Promise<void> {
-    setPicker(null);
-    setIsPoolBusy(true);
-    let content: string;
-    try {
-      ({ content } = await rpc.call("readDoc", {
-        vaultId: doc.vaultId,
-        path: doc.path,
-      }));
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : String(cause));
-      setIsPoolBusy(false);
-      return;
-    }
-    setIsPoolBusy(false);
-    // Doc content is free to carry raw HTML; escaping it here keeps the pool
-    // entry (and everything downstream of the prompt text) plain text.
-    await addPoolText("document", escapeHtml(content));
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-medium">{isDraft ? "Set up persona" : "Edit persona"}</h2>
-        <span className="text-xs text-muted-foreground">
-          {saveStatus === "saving"
-            ? "Saving…"
-            : saveStatus === "saved"
-              ? "Saved ✓"
-              : saveStatus === "error"
-                ? "Save failed — retrying on next edit"
-                : null}
+        <h2 className="text-sm font-medium">{isDraft ? "Set up persona" : "Live edit"}</h2>
+        <span
+          aria-live="polite"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          {saveStatus === "saving" ? (
+            <>
+              <Icon
+                name="Spinner"
+                aria-hidden
+                className="size-3.5 animate-spin"
+              />
+              Saving…
+            </>
+          ) : saveStatus === "saved" ? (
+            "Saved ✓"
+          ) : saveStatus === "error" ? (
+            "Save failed — retrying on next edit"
+          ) : null}
         </span>
       </div>
 
@@ -726,32 +689,17 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
                     aria-label="Add prompt from"
                     className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-background py-1 shadow-sm"
                   >
-                    {floatingNotesAvailable ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-state-hover"
-                        onClick={() => {
-                          setAddMenuOpen(false);
-                          setPicker("note");
-                        }}
-                      >
-                        Add Floating Note
-                      </button>
-                    ) : null}
-                    {docsAvailable ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-state-hover"
-                        onClick={() => {
-                          setAddMenuOpen(false);
-                          setPicker("doc");
-                        }}
-                      >
-                        Add Doc
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-state-hover"
+                      onClick={() => {
+                        setAddMenuOpen(false);
+                        setPicker("note");
+                      }}
+                    >
+                      Add Floating Note
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -896,7 +844,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
           </>
         ) : (
           <Button disabled={isBusy} onClick={() => void saveAndClose()}>
-            Save
+            Done
           </Button>
         )}
       </div>
@@ -904,11 +852,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       {picker === "note" ? (
         <FloatingNotePickerDialog
           onSelectNote={attachNote}
-          onClose={() => setPicker(null)}
-        />
-      ) : picker === "doc" ? (
-        <DocPickerDialog
-          onSelectDoc={(doc) => void attachDoc(doc)}
           onClose={() => setPicker(null)}
         />
       ) : null}

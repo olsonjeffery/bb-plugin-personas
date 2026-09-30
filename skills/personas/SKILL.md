@@ -67,27 +67,30 @@ on every turn.
   removable — `updatePersonaPrompt` rejects them server-side; remove and
   re-attach instead.
 
-## Docs attachments
+## Live-edit detail view
 
-The "+ Add" dropdown's "Add Doc" option (Docs plugin available) picks a
-document from the global vaults (`listDocs`; global = vaults with no
-`hostId`), reads it (`readDoc`), and adds it as a plain text prompt with the
-content HTML-escaped (`escapeHtml`) and clamped — a snapshot copy, unlike
-notes. All cross-plugin reads gate per call on the same availability rule
-the health report uses.
+Clicking a persona in the rail lands directly in its live editor — the
+detail view and the settings screen are one page. Every field (name, icon,
+color, prompt pool, provider, model, reasoning, project) autosaves on change
+(`savePersona`'s field-diffing patch); while a save is in flight the header
+shows a spinner plus "Saving…", then "Saved ✓". A published persona's
+"Done" button flushes the pending save and moves to its new-chat page. There
+is no gear/settings button anywhere on a persona; the ⋯ menu offers only
+New chat and Delete persona.
 
 ## Settings
 
 **Settings → Installed plugins → Personas** shows a **Plugin health**
-section: one row per cooperating plugin this one can use.
+section with:
 
+- **Install source** — the top row names where this install came from
+  (`self` on the getPluginHealth RPC). A `path:` source renders as a local
+  in-progress build ("Personas vX — in-progress build"); every other source
+  (`git:`, `npm:`, `builtin:`, catalog) is a managed install and shows its
+  raw source string.
 - **Floating Notes** — a green check when it is installed and enabled, a red
-  X when it is not.
-- **Docs** — BB's official Docs plugin (installed id `simple-notes`): a green
-  check when it is installed and enabled, a red X when it is not.
-- A missing plugin shows an inline **Install** link to its bb plugin page
-  (Floating Notes: <https://github.com/vburojevic/bb-plugin-floating-notes>;
-  Docs: <https://github.com/get-bb/bb/tree/main/plugins/docs>).
+  X when it is not, plus an inline **Install** link to its bb plugin page
+  (<https://github.com/vburojevic/bb-plugin-floating-notes>) while missing.
 - Rows read fresh from the installed-plugin list on every visit; installs,
   enables, and disables are reflected on the next open.
 
@@ -98,9 +101,13 @@ section: one row per cooperating plugin this one can use.
   plugin's own SQLite database inside bb's data directory.
 - A plugin counts as available only when it is installed, enabled, and not in
   a hard-failure status (`disabled`, `missing`, `error`, `incompatible`).
-  The server-side availability checks (`isFloatingNotesAvailable` /
-  `isDocsAvailable` in `plugin-health.ts`), the source-picker gates, and the
-  settings rows share this one rule.
+  The server-side availability check (`isFloatingNotesAvailable` in
+  `plugin-health.ts`), the source-picker gate, and the settings row share
+  this one rule.
+- Floating Notes missing degrades quietly: the + Add dropdown never renders
+  (so no Add-note affordance appears in the persona config screen), existing
+  note prompts display and inject "[Floating note is unavailable]" instead of
+  crashing, and the background note sweep just no-ops.
 - Deleting a persona never deletes its chats; they just stop receiving the
   persona's prompts.
 

@@ -40,7 +40,7 @@ With Personas, you can:
 
 - create personas for writing, research, coding, planning, reviews, or any repeatable work
 - build each persona from a pool of prompts — as many as it needs
-- attach a Floating Note or a Docs document straight into a prompt pool
+- attach a Floating Note straight into a prompt pool
 - choose a provider, model, and reasoning level per persona
 - connect a persona to a project when it needs repository context
 - keep personas without a project for everyday conversations
@@ -121,21 +121,20 @@ text box (up to 3500 characters) and click **+ Add** to put it in the pool.
 The pool is yours to curate: duplicates are allowed, and every entry keeps its
 own durable id independent of its display text.
 
-### Attaching a Floating Note or a Doc
+### Attaching a Floating Note
 
-When the **+ Add** button grows a dropdown arrow, the extra menu offers two more
-ways to fill the pool:
+When the Floating Notes plugin is installed and enabled, the **+ Add** button
+grows a dropdown arrow whose menu offers **Add Floating Note**: a modal lists
+your notes with inline search, and picking one adds a live entry that keeps
+the note's durable id — the entry shows the note's **current** content (first
+50 characters plus an ellipsis), chats receive the note's current text, and
+editing the note later updates the persona automatically. Note entries can't
+be edited in the pool — only removed.
 
-- **Add Floating Note** — a modal lists your notes with inline search. Picking
-  one adds a live entry that keeps the note's durable id: the entry shows the
-  note's **current** content (first 50 characters plus an ellipsis), chats
-  receive the note's current text, and editing the note later updates the
-  persona automatically. Note entries can't be edited in the pool — only
-  removed. Shown only while the Floating Notes plugin is installed and enabled.
-- **Add Doc** — a modal lists the documents in your Docs vaults (global scope)
-  with inline search. Picking one copies the document's content into the pool,
-  HTML-escaped so a doc's markup never travels as raw HTML. Shown only while
-  BB's official Docs plugin is installed and enabled.
+While Floating Notes is not installed and enabled, the dropdown (and any
+Add-note affordance) disappears entirely and **+ Add** stays a plain typed-text
+button. Personas already holding note entries keep working: their text falls
+back to "[Floating note is unavailable]" until the plugin returns.
 
 New personas start as drafts. This gives you space to set up their prompt pool,
 provider, and model before using them.
@@ -152,16 +151,16 @@ but they no longer receive that persona's instructions.
 
 ## Settings
 
-**Settings → Installed plugins → Personas** includes a **Plugin health** section:
-one row for each cooperating plugin Personas can use, currently:
+**Settings → Installed plugins → Personas** includes a **Plugin health**
+section with two things:
 
+- **Install source** — where this Personas install came from. A local path
+  checkout shows as an **in-progress build**; a git, npm, or catalog install
+  shows its managed source, so you can tell an official install from one you
+  are developing.
 - **Floating Notes** — a green check when it is installed and enabled, a red X
   when it is not. While it is missing, the row links to its plugin page
   ([vburojevic/bb-plugin-floating-notes](https://github.com/vburojevic/bb-plugin-floating-notes)).
-- **Docs** (BB's official Docs plugin, installed id `simple-notes`) — a green
-  check when it is installed and enabled, a red X when it is not. While it is
-  missing, the row links to its plugin page
-  ([get-bb/bb/plugins/docs](https://github.com/get-bb/bb/tree/main/plugins/docs)).
 
 The rows read the installed-plugin list fresh on every visit, so installing,
 enabling, or disabling a plugin is reflected the next time the page opens.

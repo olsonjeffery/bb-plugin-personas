@@ -33,17 +33,13 @@ import { displayName, draftBlockers, joinedPromptText, type Persona } from "@/pe
 export function PersonaHeader({
   persona,
   onBack,
-  onSettings,
   onNewChat,
-  onEditPersona,
   onDeletePersona,
   onGoToPersonaPage,
 }: {
   persona: Persona;
   onBack?: () => void;
-  onSettings: () => void;
   onNewChat: () => void;
-  onEditPersona: () => void;
   onDeletePersona: () => void;
   /** Omit when already on the persona's own page — the name renders as plain text. */
   onGoToPersonaPage?: () => void;
@@ -102,14 +98,6 @@ export function PersonaHeader({
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         )}
       </div>
-      <button
-        type="button"
-        aria-label="Edit persona settings"
-        onClick={onSettings}
-        className={`${COARSE_POINTER_HEADER_ICON_BUTTON_CLASS} inline-flex shrink-0 items-center justify-center hover:bg-accent`}
-      >
-        <Icon name="Settings" aria-hidden />
-      </button>
       <div
         className="relative shrink-0"
         onBlur={onMenuContainerBlur}
@@ -141,17 +129,6 @@ export function PersonaHeader({
               className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             >
               New chat
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onEditPersona();
-              }}
-              className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-            >
-              Edit persona
             </button>
             <button
               type="button"
@@ -277,14 +254,8 @@ export function PersonaHome({
       <PersonaHeader
         persona={persona}
         onBack={onBack}
-        onSettings={() =>
-          navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
-        }
         onNewChat={() =>
           navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/new` })
-        }
-        onEditPersona={() =>
-          navigate.toPluginPanel(PANEL_PATH, { subPath: `${personaId}/edit` })
         }
         onDeletePersona={() => void remove()}
       />

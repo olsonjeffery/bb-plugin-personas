@@ -30,8 +30,8 @@ interface SourcePickerDialogProps {
 }
 
 /**
- * The shared single-select picker modal behind "Add Floating Note" and
- * "Add Doc": a search field filtering the list inline, one click to pick.
+ * The shared single-select picker modal behind "Add Floating Note": a search
+ * field filtering the list inline, one click to pick.
  * Mounted only while open, so the source list loads lazily per open.
  */
 function SourcePickerDialog({
@@ -115,16 +115,6 @@ export interface AttachableNote {
   updatedAt: number;
 }
 
-/** One attachable Docs document, as the personas RPC returns it. */
-export interface AttachableDoc {
-  vaultId: string;
-  vaultName: string;
-  path: string;
-  title: string;
-  preview: string;
-  modifiedAtMs: number;
-}
-
 export function FloatingNotePickerDialog({
   onSelectNote,
   onClose,
@@ -155,44 +145,6 @@ export function FloatingNotePickerDialog({
       onSelect={(id) => {
         const note = notes.find((candidate) => candidate.id === id);
         if (note !== undefined) onSelectNote(note);
-      }}
-      onClose={onClose}
-    />
-  );
-}
-
-export function DocPickerDialog({
-  onSelectDoc,
-  onClose,
-}: {
-  onSelectDoc: (doc: AttachableDoc) => void;
-  onClose: () => void;
-}) {
-  const rpc = usePersonasRpc();
-  const { data, error, isLoading } = useQuery(
-    () => rpc.call("listDocs", null),
-    "docs-picker",
-  );
-  const docs = data?.docs ?? [];
-
-  return (
-    <SourcePickerDialog
-      title="Add Doc"
-      description="Pick one document to add to this persona's prompt pool."
-      searchLabel="Search docs"
-      searchPlaceholder="Search docs…"
-      items={docs.map((doc) => ({
-        id: `${doc.vaultId}:${doc.path}`,
-        label: doc.title,
-        secondary: `${doc.vaultName} · ${doc.path}`,
-      }))}
-      isLoading={isLoading}
-      error={error}
-      onSelect={(id) => {
-        const doc = docs.find(
-          (candidate) => `${candidate.vaultId}:${candidate.path}` === id,
-        );
-        if (doc !== undefined) onSelectDoc(doc);
       }}
       onClose={onClose}
     />
