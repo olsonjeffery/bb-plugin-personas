@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { promptPreview } from "@/personas";
+import { promptPreview, MAX_TEXT_INPUT } from "@/personas";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 
 /** One selectable row in a prompt-source picker. */
@@ -69,6 +69,7 @@ function SourcePickerDialog({
         <Input
           aria-label={searchLabel}
           value={search}
+          maxLength={MAX_TEXT_INPUT}
           placeholder={searchPlaceholder}
           onChange={(event) => setSearch(event.target.value)}
         />

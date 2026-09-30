@@ -610,6 +610,23 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
+  it("caps the prompt textarea at 1000 characters with a live count under a compact box", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+
+    const textarea = (await slot.findByLabelText(
+      "Text prompt",
+    )) as HTMLTextAreaElement;
+    expect(textarea.getAttribute("maxlength")).toBe("1000");
+    expect(textarea.rows).toBe(2);
+    expect(slot.getByText("0 / 1000")).toBeTruthy();
+
+    fireEvent.change(textarea, { target: { value: "Ahoy." } });
+    expect(slot.getByText("5 / 1000")).toBeTruthy();
+
+    slot.lifecycle.unmount();
+  });
+
   it("allows a prompt whose first characters match an existing entry — the user curates the pool", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });

@@ -110,6 +110,13 @@ export type PromptType = (typeof PROMPT_TYPES)[number];
  */
 export const MAX_PROMPT_TEXT = MAX_INSTRUCTIONS;
 
+/**
+ * The setup-page input cap for free-text fields. Storage and injection still
+ * honor MAX_PROMPT_TEXT (legacy rows can hold more); the editor just keeps new
+ * typing to a compact length.
+ */
+export const MAX_TEXT_INPUT = 1000;
+
 /** How much of a prompt's text a pool entry displays before its ellipsis. */
 export const PROMPT_PREVIEW_LIMIT = 50;
 
