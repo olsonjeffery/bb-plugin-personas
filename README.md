@@ -40,6 +40,7 @@ With Personas, you can:
 
 - create personas for writing, research, coding, planning, reviews, or any repeatable work
 - build each persona from a pool of prompts — as many as it needs
+- attach a Floating Note or a Docs document straight into a prompt pool
 - choose a provider, model, and reasoning level per persona
 - connect a persona to a project when it needs repository context
 - keep personas without a project for everyday conversations
@@ -69,7 +70,7 @@ Requires BB `>=0.39.0`.
 
 1. Open **Personas** from the BB sidebar.
 2. Click **New persona**.
-3. Give the persona a name and add prompts to its prompt pool.
+3. Give the persona a name, pick its icon and color, and add prompts to its prompt pool.
 4. Choose its provider, model, and reasoning level.
 5. Optionally select a project if the persona should work with a repository.
 6. Click **Publish**.
@@ -104,33 +105,40 @@ for writing, thinking, planning, and other general conversations.
 The provider, model, project, and reasoning level are used as defaults when you
 start a chat. You can still change them before sending the first message.
 
+Each persona has its own name, emoji, and color. The icon chooser's palette
+(**Auto** plus six curated colors) tints the persona's avatar everywhere it
+appears — the sidebar, the editor, and its home. **Auto** keeps the stable tint
+derived from the persona's id, which is what personas created before colors
+wear.
+
 ## The prompt pool
 
 A persona's standing instructions live in its prompt pool. The editor lists every
-prompt as an entry — the first 24 characters plus an ellipsis when the text is
+prompt as an entry — the first 50 characters plus an ellipsis when the text is
 longer — with **Edit** and **Remove** buttons beside it. Type a prompt into the
 text box (up to 3500 characters) and click **+ Add** to put it in the pool.
 
-Two prompts in the same pool can't start with the same 24 characters, so each
-entry stays recognizable at a glance. The same text on two different personas is
-fine. More prompt types are planned; today every prompt is a text prompt.
+The pool is yours to curate: duplicates are allowed, and every entry keeps its
+own durable id independent of its display text.
+
+### Attaching a Floating Note or a Doc
+
+When the **+ Add** button grows a dropdown arrow, the extra menu offers two more
+ways to fill the pool:
+
+- **Add Floating Note** — a modal lists your notes with inline search. Picking
+  one adds a live entry that keeps the note's durable id: the entry shows the
+  note's **current** content (first 50 characters plus an ellipsis), chats
+  receive the note's current text, and editing the note later updates the
+  persona automatically. Note entries can't be edited in the pool — only
+  removed. Shown only while the Floating Notes plugin is installed and enabled.
+- **Add Doc** — a modal lists the documents in your Docs vaults (global scope)
+  with inline search. Picking one copies the document's content into the pool,
+  HTML-escaped so a doc's markup never travels as raw HTML. Shown only while
+  BB's official Docs plugin is installed and enabled.
 
 New personas start as drafts. This gives you space to set up their prompt pool,
 provider, and model before using them.
-
-A draft cannot start a chat until it has:
-
-- a name
-- a provider
-- a model
-
-Once published, the persona is ready to use from the Personas sidebar.
-
-A draft cannot start a chat until it has:
-
-- a name
-- a provider
-- a model
 
 Once published, the persona is ready to use from the Personas sidebar.
 

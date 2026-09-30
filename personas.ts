@@ -40,14 +40,38 @@ export const EMOJIS: readonly string[] = EMOJI_GROUPS.flatMap(
   (group) => group.emojis,
 );
 
-const TINTS = [
-  "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  "bg-violet-500/15 text-violet-600 dark:text-violet-400",
-  "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-  "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
+/**
+ * The curated avatar color palette, in picker order. The tint classes are
+ * theme-aware (light/dark variants), the same slots the hash-derived fallback
+ * tintFor draws from.
+ */
+export const PERSONA_COLORS = [
+  "blue",
+  "emerald",
+  "amber",
+  "violet",
+  "rose",
+  "cyan",
 ] as const;
+
+export type PersonaColor = (typeof PERSONA_COLORS)[number];
+
+const COLOR_TINTS: Record<PersonaColor, string> = {
+  blue: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  emerald: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  amber: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  violet: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
+  rose: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+  cyan: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
+};
+
+/** True when `value` is one of the curated persona colors. */
+export function isPersonaColor(value: unknown): value is PersonaColor {
+  return (
+    typeof value === "string" &&
+    (PERSONA_COLORS as readonly string[]).includes(value)
+  );
+}
 
 export const REASONING_LEVELS = [
   "none", "low", "medium", "high", "xhigh", "max", "ultra", "ultracode",
@@ -61,6 +85,8 @@ export interface Persona {
   id: string;
   name: string;
   emoji: string;
+  /** The chosen avatar color; null = the stable hash-derived tint. */
+  color: PersonaColor | null;
   /** The persona's prompt pool; injected into every turn of its chats. */
   prompts: PersonaPrompt[];
   providerId: string;
@@ -73,8 +99,8 @@ export interface Persona {
   updatedAt: number;
 }
 
-/** The prompt types a pool entry can carry; "text" is the only one so far. */
-export const PROMPT_TYPES = ["text"] as const;
+/** The prompt types a pool entry can carry: plain text, or a live Floating Note. */
+export const PROMPT_TYPES = ["text", "note"] as const;
 
 export type PromptType = (typeof PROMPT_TYPES)[number];
 
@@ -85,9 +111,14 @@ export type PromptType = (typeof PROMPT_TYPES)[number];
 export const MAX_PROMPT_TEXT = MAX_INSTRUCTIONS;
 
 /** How much of a prompt's text a pool entry displays before its ellipsis. */
-export const PROMPT_PREVIEW_LIMIT = 24;
+export const PROMPT_PREVIEW_LIMIT = 50;
 
-/** One entry in a persona's prompt pool. Each prompt belongs to one persona. */
+/**
+ * One entry in a persona's prompt pool. Each prompt belongs to one persona.
+ * A `text` prompt carries its own prose in `text`; a `note` prompt carries a
+ * JSON reference to a Floating Note (see NotePromptRef) and contributes that
+ * note's live body — so its stored `text` is never shown or injected as-is.
+ */
 export interface PersonaPrompt {
   id: string;
   personaId: string;
@@ -173,9 +204,29 @@ function hash(value: string): number {
   return Math.abs(result);
 }
 
-/** Deterministic avatar tint classes for a persona id. */
+/**
+ * Deterministic fallback avatar tint for a persona id — what a persona with
+ * no chosen color wears. Same palette the color picker offers, so an unpicked
+ * persona looks no different in kind from a picked one.
+ */
 export function tintFor(personaId: string): string {
-  return TINTS[hash(personaId) % TINTS.length]!;
+  return COLOR_TINTS[PERSONA_COLORS[hash(personaId) % PERSONA_COLORS.length]!]!;
+}
+
+/** The theme-aware tint classes one palette color wears. */
+export function personaColorTint(color: PersonaColor): string {
+  return COLOR_TINTS[color];
+}
+
+/**
+ * The avatar tint everywhere a persona renders: its chosen color when it has
+ * one, otherwise the stable hash-derived tint.
+ */
+export function avatarTint(
+  personaId: string,
+  color: PersonaColor | null,
+): string {
+  return color === null ? tintFor(personaId) : personaColorTint(color);
 }
 
 export function newPersonaId(): string {
@@ -203,27 +254,96 @@ export function promptPreview(text: string): string {
 }
 
 /**
- * The uniqueness key the pool enforces: one persona can never hold two
- * prompts whose first 24 characters are identical.
+ * HTML-escapes the five characters that carry meaning in markup, so content
+ * pulled in from elsewhere (a Docs document, which is free to hold raw HTML)
+ * can never inject markup wherever prompt text is rendered. The pool-entry
+ * display and the joined instruction block stay plain text.
  */
-export function promptConflictKey(text: string): string {
-  return clampPromptText(text).slice(0, PROMPT_PREVIEW_LIMIT);
+export function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 /**
- * True when `text` collides with any of `existing` on the first 24
- * characters. Scope is a single persona's pool — the same text on two
- * different personas is fine.
+ * The blob stored in a note prompt's `text` column: a JSON object naming the
+ * Floating Note it points at by durable id. Titles change; ids don't. The
+ * `kind` discriminant is what marks the blob (with the prompt's `type`) so
+ * nothing else in the system mistakes it for prompt prose.
  */
-export function hasPromptConflict(
-  existing: readonly string[],
-  text: string,
-): boolean {
-  const key = promptConflictKey(text);
-  return existing.some((candidate) => promptConflictKey(candidate) === key);
+export interface NotePromptRef {
+  kind: "floating-note";
+  noteId: string;
 }
 
-/** All of a persona's prompt texts joined into the block its chats receive. */
+export function encodeNotePromptRef(noteId: string): string {
+  return JSON.stringify({ kind: "floating-note", noteId });
+}
+
+/**
+ * Parses a stored note prompt body back into its note reference. Strict on
+ * purpose: anything that isn't exactly `{ kind: "floating-note", noteId }`
+ * reads as null, and a null is treated as an ordinary text prompt (a
+ * hand-edited or corrupted row degrades instead of crashing).
+ */
+export function decodeNotePromptRef(text: string): NotePromptRef | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.kind !== "floating-note") return null;
+  if (typeof candidate.noteId !== "string" || candidate.noteId.length === 0) {
+    return null;
+  }
+  return { kind: "floating-note", noteId: candidate.noteId };
+}
+
+/** What a note prompt contributes when its note can't be read. */
+export const NOTE_UNAVAILABLE_TEXT = "[Floating note is unavailable]";
+
+/**
+ * The display/instruction text one prompt contributes. A text prompt is its
+ * own text; a note prompt is its note's CURRENT body, read from the live
+ * note map the server keeps — which is the whole point of attaching a note:
+ * edits to the note flow through without touching the pool.
+ */
+export function resolvedPromptText(
+  prompt: PersonaPrompt,
+  noteBodies: ReadonlyMap<string, string>,
+): string {
+  if (prompt.type === "text") return prompt.text;
+  const ref = decodeNotePromptRef(prompt.text);
+  if (ref === null) return prompt.text;
+  return noteBodies.get(ref.noteId) ?? NOTE_UNAVAILABLE_TEXT;
+}
+
+/**
+ * A copy of `prompts` in which every note prompt's text has been replaced by
+ * its note's current body. What `joinedPromptText` and
+ * `renderPersonaInstructions` receive when the caller wants live content.
+ */
+export function resolvePromptTexts(
+  prompts: readonly PersonaPrompt[],
+  noteBodies: ReadonlyMap<string, string>,
+): PersonaPrompt[] {
+  return prompts.map((prompt) => {
+    if (prompt.type === "text") return prompt;
+    return { ...prompt, text: resolvedPromptText(prompt, noteBodies) };
+  });
+}
+
+/**
+ * All of a persona's prompt texts joined into the block its chats receive.
+ * Callers holding DB-shaped prompts resolve note prompts first
+ * (resolvePromptTexts); wire prompts already carry resolved text.
+ */
 export function joinedPromptText(prompts: readonly PersonaPrompt[]): string {
   return prompts
     .map((prompt) => prompt.text)
@@ -328,6 +448,7 @@ export interface PersonaRow {
   id: string;
   name: string;
   emoji: string;
+  color: string | null;
   instructions: string;
   provider_id: string;
   model: string;
@@ -350,12 +471,21 @@ export interface PersonaPromptRow {
 }
 
 export function rowToPrompt(row: PersonaPromptRow): PersonaPrompt {
+  // Any unrecognized stored type reads as "text" rather than flowing uncaught
+  // into the prompt RPCs' zod schemas. A "note" row whose body is no longer a
+  // decodable reference (hand-edited, corrupted) degrades the same way — its
+  // raw text stays visible and editable instead of crashing the read.
+  const storedType = PROMPT_TYPES.includes(row.type as PromptType)
+    ? (row.type as PromptType)
+    : "text";
+  const type =
+    storedType === "note" && decodeNotePromptRef(row.text) === null
+      ? "text"
+      : storedType;
   return {
     id: row.id,
     personaId: row.persona_id,
-    // "text" is the only prompt type so far, so any stored value reads as
-    // one rather than flowing uncaught into the prompt RPCs' zod schemas.
-    type: "text",
+    type,
     text: row.text,
     position: row.position,
     createdAt: row.created_at,
@@ -395,6 +525,9 @@ export function rowToPersona(row: PersonaRow, prompts: PersonaPrompt[]): Persona
     id: row.id,
     name: row.name,
     emoji: row.emoji,
+    // Any unrecognized stored value reads as auto (the hash tint) rather
+    // than flowing uncaught into the UI and the savePersona RPC's zod schema.
+    color: isPersonaColor(row.color) ? row.color : null,
     prompts,
     providerId: row.provider_id,
     model: row.model,

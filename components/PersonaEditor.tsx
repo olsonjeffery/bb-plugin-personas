@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Icon } from "@/components/ui/icon";
 import {
   Dialog,
   DialogClose,
@@ -23,18 +24,27 @@ import {
 } from "@/components/ui/select";
 import { PersonaAvatar } from "@/components/PersonaAvatar";
 import { EmojiPicker } from "@/components/EmojiPicker";
+import {
+  DocPickerDialog,
+  FloatingNotePickerDialog,
+  type AttachableDoc,
+  type AttachableNote,
+} from "@/components/PromptSourcePicker";
 import { usePersonasRpc, useQuery } from "@/components/use-query";
 import { PANEL_PATH } from "@/components/panel-path";
+import { DOCS_PLUGIN_ID } from "@/plugin-health";
 import {
   clampPromptText,
   displayName,
   draftBlockers,
-  hasPromptConflict,
+  escapeHtml,
   MAX_NAME,
   MAX_PROMPT_TEXT,
   pickEmoji,
   promptPreview,
+  tintFor,
   type Persona,
+  type PersonaColor,
   type PersonaPrompt,
   type ReasoningLevel,
 } from "@/personas";
@@ -48,6 +58,7 @@ const AUTOSAVE_DELAY_MS = 600;
 interface DraftFields {
   name: string;
   emoji: string;
+  color: PersonaColor | null;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -57,6 +68,7 @@ interface DraftFields {
 type PersonaPatch = Partial<{
   name: string;
   emoji: string;
+  color: PersonaColor | null;
   providerId: string;
   model: string;
   reasoningLevel: ReasoningLevel | null;
@@ -78,6 +90,10 @@ function diffDraft(
   if (current.emoji !== base.emoji) {
     patch.emoji = current.emoji;
     nextBase.emoji = current.emoji;
+  }
+  if (current.color !== base.color) {
+    patch.color = current.color;
+    nextBase.color = current.color;
   }
   if (current.providerId !== base.providerId) {
     patch.providerId = current.providerId;
@@ -104,14 +120,21 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const navigate = useBbNavigate();
 
   // One round trip for everything the form needs, so the pickers and the
-  // existing values arrive together instead of in a waterfall.
+  // existing values arrive together instead of in a waterfall. Plugin health
+  // rides along so the + Add split button knows which source pickers exist.
   const { data, error, reload } = useQuery(
-    () => Promise.all([rpc.call("listOptions"), rpc.call("getPersona", { personaId })]),
+    () =>
+      Promise.all([
+        rpc.call("listOptions", null),
+        rpc.call("getPersona", { personaId }),
+        rpc.call("getPluginHealth", null),
+      ]),
     `editor:${personaId}`,
   );
 
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState(pickEmoji);
+  const [color, setColor] = useState<PersonaColor | null>(null);
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel | null>(null);
@@ -128,9 +151,22 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [isPoolBusy, setIsPoolBusy] = useState(false);
+  // The + Add dropdown: open while its menu shows, holding the picker the
+  // user asked for ("note" / "doc") once a menu item is picked.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [picker, setPicker] = useState<"note" | "doc" | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
 
   const options = data?.[0] ?? null;
   const persona = data?.[1].persona ?? null;
+  const health = data?.[2] ?? null;
+
+  // Same one-plugin rule the server-side source RPCs gate on; the menu only
+  // offers a picker whose plugin is actually there.
+  const floatingNotesAvailable = health?.floatingNotesAvailable ?? false;
+  const docsAvailable =
+    health?.tools.find((tool) => tool.id === DOCS_PLUGIN_ID)?.available ??
+    false;
 
   // The baseline autosave diffs new edits against — the fields the server
   // actually has. Deliberately separate from form state: seeding a fresh
@@ -140,6 +176,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const draftRef = useRef<DraftFields>({
     name,
     emoji,
+    color,
     providerId,
     model,
     reasoningLevel,
@@ -148,6 +185,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   draftRef.current = {
     name,
     emoji,
+    color,
     providerId,
     model,
     reasoningLevel,
@@ -213,6 +251,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
             options.providers[0])?.id ?? "";
     setName(persona.name);
     setEmoji(persona.emoji);
+    setColor(persona.color);
     setProviderId(seededProviderId);
     setModel(persona.model);
     setReasoningLevel(persona.reasoningLevel);
@@ -222,6 +261,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     savedRef.current = {
       name: persona.name,
       emoji: persona.emoji,
+      color: persona.color,
       providerId: persona.providerId,
       model: persona.model,
       reasoningLevel: persona.reasoningLevel,
@@ -274,7 +314,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSeeded, name, emoji, providerId, model, reasoningLevel, projectId]);
+  }, [isSeeded, name, emoji, color, providerId, model, reasoningLevel, projectId]);
 
   // A user hitting Cmd-W (or Alt-Tab, etc.) moments after typing must not
   // lose that keystroke, so flush on both unmount and window blur — blur
@@ -287,6 +327,25 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The + Add dropdown is a plain positioned menu, so it owns its own
+  // dismissal: any pointer-down outside it, or Escape, closes it.
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (addMenuRef.current?.contains(event.target as Node)) return;
+      setAddMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [addMenuOpen]);
 
   if (error !== null) {
     return <p className="text-sm text-destructive">{error}</p>;
@@ -301,6 +360,8 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   const selectedModel = available.find((candidate) => candidate.id === model);
   const isDraft = persona.status === "draft";
   const prompts = persona.prompts;
+  // Whether the + Add dropdown has anything to offer at all.
+  const hasPromptSources = floatingNotesAvailable || docsAvailable;
 
   // Blockers reflect what's on screen right now, not the last save that
   // landed — otherwise Publish would only enable after a round trip.
@@ -308,6 +369,7 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     ...persona,
     name: name.trim(),
     emoji,
+    color,
     providerId,
     model,
     reasoningLevel,
@@ -371,17 +433,6 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
   async function submitPrompt(): Promise<void> {
     const text = clampPromptText(promptDraft);
     if (text.length === 0) return;
-    // Pre-checked locally so a duplicate is caught without a round trip; the
-    // server re-checks the rule (it owns it) and its message toasts on catch.
-    const siblings = prompts
-      .filter((prompt) => prompt.id !== editingPromptId)
-      .map((prompt) => prompt.text);
-    if (hasPromptConflict(siblings, text)) {
-      setPromptError(
-        "This pool already has a prompt with the same first 24 characters.",
-      );
-      return;
-    }
     setIsPoolBusy(true);
     try {
       if (editingPromptId === null) {
@@ -415,6 +466,79 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
     }
   }
 
+  // -- Prompt-pool sources ----------------------------------------------------
+
+  /** Reports a rejected attachment: inline under the pool, and as a toast. */
+  function reportPoolError(message: string): void {
+    setPromptError(message);
+    toast.error(message);
+  }
+
+  /**
+   * Shared tail of the Doc attachment path: add the (sanitized) text as a
+   * plain text prompt. The picker is already closed by the time this runs —
+   * selecting an entry is what dismisses it. No uniqueness rule: the pool is
+   * the user's to curate.
+   */
+  async function addPoolText(sourceLabel: string, text: string): Promise<void> {
+    const clamped = clampPromptText(text);
+    if (clamped.length === 0) {
+      reportPoolError(`That ${sourceLabel} is empty.`);
+      return;
+    }
+    setIsPoolBusy(true);
+    try {
+      await rpc.call("addPersonaPrompt", { personaId, type: "text", text: clamped });
+      reload();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsPoolBusy(false);
+    }
+  }
+
+  /**
+   * Attaches a Floating Note as a live reference, not a copy: the pool entry
+   * keeps the note's durable id, and its displayed/injected text always
+   * reads the note's current body. Selecting the note is what dismisses the
+   * picker.
+   */
+  function attachNote(note: AttachableNote): void {
+    setPicker(null);
+    setIsPoolBusy(true);
+    rpc
+      .call("addPersonaPrompt", {
+        personaId,
+        type: "note",
+        noteId: note.id,
+      })
+      .then(() => reload())
+      .catch((cause) => {
+        toast.error(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => setIsPoolBusy(false));
+  }
+
+  async function attachDoc(doc: AttachableDoc): Promise<void> {
+    setPicker(null);
+    setIsPoolBusy(true);
+    let content: string;
+    try {
+      ({ content } = await rpc.call("readDoc", {
+        vaultId: doc.vaultId,
+        path: doc.path,
+      }));
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause));
+      setIsPoolBusy(false);
+      return;
+    }
+    setIsPoolBusy(false);
+    // Doc content is free to carry raw HTML; escaping it here keeps the pool
+    // entry (and everything downstream of the prompt text) plain text.
+    await addPoolText("document", escapeHtml(content));
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-baseline justify-between">
@@ -436,13 +560,19 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
           {nameBlocked ? <span className="text-xs text-destructive">Required</span> : null}
         </div>
         <div className="flex items-center gap-2">
-          <EmojiPicker value={emoji} onChange={setEmoji}>
+          <EmojiPicker
+            value={emoji}
+            onChange={setEmoji}
+            color={color}
+            onColorChange={setColor}
+            autoTint={tintFor(persona.id)}
+          >
             <button
               type="button"
               aria-label="Change icon"
               className="cursor-pointer rounded-lg hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              <PersonaAvatar personaId={persona.id} emoji={emoji} />
+              <PersonaAvatar personaId={persona.id} emoji={emoji} color={color} />
             </button>
           </EmojiPicker>
           <Button
@@ -480,19 +610,38 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
           <ul className="divide-y divide-border rounded-lg border border-border">
             {prompts.map((prompt) => (
               <li key={prompt.id} className="flex items-center gap-2 px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-sm" title={prompt.text}>
-                  {promptPreview(prompt.text)}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isPoolBusy}
-                  aria-label={`Edit prompt: ${promptPreview(prompt.text)}`}
-                  onClick={() => startEditPrompt(prompt)}
-                >
-                  Edit
-                </Button>
+                {prompt.type === "note" ? (
+                  // A note entry is a live pointer, not prose: it renders the
+                  // note's current body (resolved server-side) and can only be
+                  // removed — never edited, or it would drift from its note.
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground">
+                      Floating Note
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-sm"
+                      title={prompt.text}
+                    >
+                      {promptPreview(prompt.text)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-sm" title={prompt.text}>
+                    {promptPreview(prompt.text)}
+                  </span>
+                )}
+                {prompt.type === "note" ? null : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isPoolBusy}
+                    aria-label={`Edit prompt: ${promptPreview(prompt.text)}`}
+                    onClick={() => startEditPrompt(prompt)}
+                  >
+                    Edit
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -536,14 +685,77 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
                 Cancel
               </Button>
             ) : null}
-            <Button
-              type="button"
-              size="sm"
-              disabled={isPoolBusy || promptDraft.trim().length === 0}
-              onClick={() => void submitPrompt()}
-            >
-              {editingPromptId !== null ? "Save prompt" : "+ Add"}
-            </Button>
+            {editingPromptId !== null || !hasPromptSources ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPoolBusy || promptDraft.trim().length === 0}
+                onClick={() => void submitPrompt()}
+              >
+                {editingPromptId !== null ? "Save prompt" : "+ Add"}
+              </Button>
+            ) : (
+              // The + Add split button: the main half still adds the typed
+              // text prompt; the dropdown half offers the source pickers.
+              <div ref={addMenuRef} className="relative inline-flex">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-r-none"
+                  disabled={isPoolBusy || promptDraft.trim().length === 0}
+                  onClick={() => void submitPrompt()}
+                >
+                  + Add
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-l-none border-l-0 px-2"
+                  aria-label="More add options"
+                  aria-haspopup="menu"
+                  aria-expanded={addMenuOpen}
+                  disabled={isPoolBusy}
+                  onClick={() => setAddMenuOpen((open) => !open)}
+                >
+                  <Icon name="ChevronDown" aria-hidden />
+                </Button>
+                {addMenuOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="Add prompt from"
+                    className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-background py-1 shadow-sm"
+                  >
+                    {floatingNotesAvailable ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-state-hover"
+                        onClick={() => {
+                          setAddMenuOpen(false);
+                          setPicker("note");
+                        }}
+                      >
+                        Add Floating Note
+                      </button>
+                    ) : null}
+                    {docsAvailable ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-state-hover"
+                        onClick={() => {
+                          setAddMenuOpen(false);
+                          setPicker("doc");
+                        }}
+                      >
+                        Add Doc
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
         {promptError !== null ? (
@@ -551,7 +763,8 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
         ) : (
           <p className="text-xs text-muted-foreground">
             Every prompt in the pool is injected into each turn of this
-            persona&apos;s chats.
+            persona&apos;s chats. Floating Note entries inject the note&apos;s
+            current content — edit the note and this persona follows.
           </p>
         )}
       </div>
@@ -687,6 +900,18 @@ export function PersonaEditor({ personaId }: { personaId: string }) {
           </Button>
         )}
       </div>
+
+      {picker === "note" ? (
+        <FloatingNotePickerDialog
+          onSelectNote={attachNote}
+          onClose={() => setPicker(null)}
+        />
+      ) : picker === "doc" ? (
+        <DocPickerDialog
+          onSelectDoc={(doc) => void attachDoc(doc)}
+          onClose={() => setPicker(null)}
+        />
+      ) : null}
     </div>
   );
 }

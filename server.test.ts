@@ -130,6 +130,66 @@ beforeEach(async () => {
   await plugin(host.bb);
 });
 
+// The shape of the one argument bb.sdk.plugins.callRpc receives.
+interface CrossRpcArgs {
+  pluginId: string;
+  method: string;
+  input?: unknown;
+  outputSchema?: { parse: (value: unknown) => unknown };
+}
+
+/**
+ * Stands in for the host's cross-plugin RPC: dispatches on
+ * "<pluginId>:<method>", validates each answer through the caller's own
+ * outputSchema the way the real host does, and records every call.
+ */
+function stubCrossPluginRpc(
+  handlers: Record<string, (input: unknown) => unknown>,
+): CrossRpcArgs[] {
+  const calls: CrossRpcArgs[] = [];
+  host.harness.inspection.sdk.stub(
+    "plugins.callRpc",
+    (async (args: CrossRpcArgs) => {
+      calls.push(args);
+      const handler = handlers[`${args.pluginId}:${args.method}`];
+      if (handler === undefined) {
+        throw new Error(`no cross-rpc stub for ${args.pluginId}:${args.method}`);
+      }
+      return args.outputSchema?.parse(handler(args.input));
+    }) as never,
+  );
+  return calls;
+}
+
+/** One ListedNote row as Floating Notes' listNotes returns it. */
+function makeFloatingNote(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "note_1",
+    title: "Pirate sayings",
+    body: "Always answer in pirate speak.",
+    tags: [],
+    kind: "note",
+    color: null,
+    pinned: false,
+    pinnedThreadId: null,
+    pinnedProjectId: null,
+    stickyOpen: false,
+    collapsed: false,
+    dateKey: null,
+    taskTotal: 0,
+    taskDone: 0,
+    trashedAt: null,
+    originProjectId: null,
+    originThreadId: null,
+    matchSnippet: null,
+    threadTitle: null,
+    projectName: null,
+    createdAt: 1,
+    updatedAt: 10,
+    ...overrides,
+  };
+}
+
 // createPersona only ever writes a bare draft row now; tests that need a
 // complete, publishable persona go through savePersona + addPersonaPrompt +
 // publishPersona the same way the editor does.
@@ -249,6 +309,62 @@ describe("instruction routing", () => {
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toBeNull();
   });
+
+  it("contributes a note prompt's live body, and follows edits to the note", async () => {
+    // The note's body changes between reads, the way a real edit would.
+    let body = "Feed crackers twice a day.";
+    stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [makeFloatingNote({ id: "note_1", body })],
+        tags: [],
+        counts: { active: 1, trashed: 0 },
+      }),
+    });
+
+    const personaId = await createPublishedPersona();
+    await host.harness.behavior.callRpc("addPersonaPrompt", {
+      personaId,
+      type: "note",
+      noteId: "note_1",
+    });
+    const { threadId } = (await host.harness.behavior.callRpc("startChat", {
+      personaId,
+      request: makeRequest(),
+    })) as { threadId: string };
+
+    const provide = host.harness.registrations.instructionProvider!;
+    expect(provide({ threadId, projectId: "proj_personal" })).toContain(
+      "Feed crackers twice a day.",
+    );
+
+    // The note is edited in Floating Notes; the persona follows on the next
+    // refresh (any reader — here, the editor's getPersona).
+    body = "Feed crackers thrice a day, and skip the crackers.";
+    await host.harness.behavior.callRpc("getPersona", { personaId });
+    expect(provide({ threadId, projectId: "proj_personal" })).toContain(
+      "Feed crackers thrice a day, and skip the crackers.",
+    );
+  });
+
+  it("contributes the unavailable marker when the note can't be read", async () => {
+    // No listNotes stub at all: every refresh fails, so the cache stays empty.
+    stubCrossPluginRpc({});
+    const personaId = await createPublishedPersona();
+    await host.harness.behavior.callRpc("addPersonaPrompt", {
+      personaId,
+      type: "note",
+      noteId: "note_missing",
+    });
+    const { threadId } = (await host.harness.behavior.callRpc("startChat", {
+      personaId,
+      request: makeRequest(),
+    })) as { threadId: string };
+
+    const provide = host.harness.registrations.instructionProvider!;
+    expect(provide({ threadId, projectId: "proj_personal" })).toContain(
+      "[Floating note is unavailable]",
+    );
+  });
 });
 
 describe("prompt pool", () => {
@@ -287,13 +403,13 @@ describe("prompt pool", () => {
     expect(await getPrompts(personaId)).toHaveLength(1);
   });
 
-  it("rejects a second prompt whose first 24 characters match an existing one", async () => {
+  it("allows two prompts whose first characters match — the pool is the user's to curate", async () => {
     const personaId = await createDraft();
     await addPrompt(personaId, `${"a".repeat(30)} one`);
     await expect(
       addPrompt(personaId, `${"a".repeat(24)} entirely different tail`),
-    ).rejects.toThrow("same first 24 characters");
-    expect(await getPrompts(personaId)).toHaveLength(1);
+    ).resolves.toBeTruthy();
+    expect(await getPrompts(personaId)).toHaveLength(2);
   });
 
   it("allows the same text on a different persona", async () => {
@@ -338,17 +454,119 @@ describe("prompt pool", () => {
     );
   });
 
-  it("rejects an update that collides with a sibling prompt", async () => {
+  it("allows an update that matches a sibling prompt's text", async () => {
     const personaId = await createDraft();
     const { prompt: first } = await addPrompt(personaId, `${"b".repeat(30)} one`);
     await addPrompt(personaId, `${"c".repeat(30)} two`);
+    const updated = (await host.harness.behavior.callRpc(
+      "updatePersonaPrompt",
+      { personaId, promptId: first.id, text: `${"c".repeat(24)} different tail` },
+    )) as { prompt: { text: string } };
+    expect(updated.prompt.text).toBe(`${"c".repeat(24)} different tail`);
+    expect(await getPrompts(personaId)).toHaveLength(2);
+  });
+
+  it("adds a note prompt as a live reference, storing the note id — not a copy of its text", async () => {
+    stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [makeFloatingNote({ id: "note_1", body: "Feed crackers twice a day." })],
+        tags: [],
+        counts: { active: 1, trashed: 0 },
+      }),
+    });
+    const personaId = await createDraft();
+    const { prompt } = (await host.harness.behavior.callRpc(
+      "addPersonaPrompt",
+      { personaId, type: "note", noteId: "note_1" },
+    )) as { prompt: { id: string; type: string; noteId: string; text: string } };
+
+    // The wire carries the live body and the durable link, never the blob.
+    expect(prompt).toMatchObject({
+      personaId,
+      type: "note",
+      noteId: "note_1",
+      text: "Feed crackers twice a day.",
+    });
+    // The durable row stores the reference, so later note edits flow through.
+    const row = host.bb.storage
+      .database()
+      .prepare("SELECT type, text FROM persona_prompts WHERE id = ?")
+      .get(prompt.id) as { type: string; text: string };
+    expect(row.type).toBe("note");
+    expect(JSON.parse(row.text)).toEqual({
+      kind: "floating-note",
+      noteId: "note_1",
+    });
+  });
+
+  it("lets a persona hold the same note twice — the pool is the user's to curate", async () => {
+    stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [makeFloatingNote({ id: "note_1" })],
+        tags: [],
+        counts: { active: 1, trashed: 0 },
+      }),
+    });
+    const personaId = await createDraft();
+    await expect(
+      host.harness.behavior.callRpc("addPersonaPrompt", {
+        personaId,
+        type: "note",
+        noteId: "note_1",
+      }),
+    ).resolves.toBeTruthy();
+    await expect(
+      host.harness.behavior.callRpc("addPersonaPrompt", {
+        personaId,
+        type: "note",
+        noteId: "note_1",
+      }),
+    ).resolves.toBeTruthy();
+    expect(await getPrompts(personaId)).toHaveLength(2);
+  });
+
+  it("rejects editing a note prompt — remove it and attach the note again instead", async () => {
+    stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [makeFloatingNote({ id: "note_1" })],
+        tags: [],
+        counts: { active: 1, trashed: 0 },
+      }),
+    });
+    const personaId = await createDraft();
+    const { prompt } = (await host.harness.behavior.callRpc(
+      "addPersonaPrompt",
+      { personaId, type: "note", noteId: "note_1" },
+    )) as { prompt: { id: string } };
     await expect(
       host.harness.behavior.callRpc("updatePersonaPrompt", {
         personaId,
-        promptId: first.id,
-        text: `${"c".repeat(24)} different tail`,
+        promptId: prompt.id,
+        text: "Hand-edited text.",
       }),
-    ).rejects.toThrow("same first 24 characters");
+    ).rejects.toThrow("Note prompts can't be edited");
+    // The reference survived the rejected edit.
+    expect((await getPrompts(personaId))[0]?.type).toBe("note");
+  });
+
+  it("removes a note prompt like any other pool entry", async () => {
+    stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [makeFloatingNote({ id: "note_1" })],
+        tags: [],
+        counts: { active: 1, trashed: 0 },
+      }),
+    });
+    const personaId = await createDraft();
+    const { prompt } = (await host.harness.behavior.callRpc(
+      "addPersonaPrompt",
+      { personaId, type: "note", noteId: "note_1" },
+    )) as { prompt: { id: string } };
+    await host.harness.behavior.callRpc("removePersonaPrompt", {
+      personaId,
+      promptId: prompt.id,
+    });
+    expect(await getPrompts(personaId)).toHaveLength(0);
   });
 
   it("removes one prompt and leaves the persona's other prompts", async () => {
@@ -388,6 +606,230 @@ describe("prompt pool", () => {
       .prepare("SELECT * FROM persona_prompts WHERE persona_id = ?")
       .all(personaId);
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("prompt-pool sources", () => {
+  function makeDocNote(overrides: Record<string, unknown> = {}) {
+    return {
+      path: "plans/release.md",
+      title: "Release plan",
+      preview: "Ship the pool sources",
+      modifiedAtMs: 10,
+      ...overrides,
+    };
+  }
+
+  function makeVault(overrides: Record<string, unknown> = {}) {
+    return { id: "personal", name: "Personal", hostId: null, rootPath: "/v", ...overrides };
+  }
+
+  it("lists active Floating Notes newest-first, reading only the fields a prompt needs", async () => {
+    const calls = stubCrossPluginRpc({
+      "floating-notes:listNotes": () => ({
+        notes: [
+          makeFloatingNote({ id: "note_old", title: "Old", body: "Old body.", updatedAt: 1 }),
+          makeFloatingNote({ id: "note_new", title: "New", body: "New body.", updatedAt: 2 }),
+        ],
+        tags: [],
+        counts: { active: 2, trashed: 0 },
+      }),
+    });
+
+    const { notes } = (await host.harness.behavior.callRpc(
+      "listFloatingNotes",
+      null,
+    )) as { notes: { id: string; title: string; body: string; updatedAt: number }[] };
+
+    // The listNotes call asked Floating Notes for the active view, capped.
+    expect(calls[0]).toMatchObject({
+      pluginId: "floating-notes",
+      method: "listNotes",
+      input: { view: "active", limit: 500 },
+    });
+    expect(notes).toEqual([
+      { id: "note_new", title: "New", body: "New body.", updatedAt: 2 },
+      { id: "note_old", title: "Old", body: "Old body.", updatedAt: 1 },
+    ]);
+  });
+
+  it("refuses to list Floating Notes when the plugin isn't available", async () => {
+    stubCrossPluginRpc({});
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({ plugins: [] })) as never,
+    );
+
+    await expect(
+      host.harness.behavior.callRpc("listFloatingNotes", null),
+    ).rejects.toThrow("Floating Notes is not installed and enabled");
+    expect(
+      host.harness.inspection.sdk.callsTo("plugins.callRpc"),
+    ).toHaveLength(0);
+  });
+
+  it("lists docs from every global vault, skipping host vaults and failed scans", async () => {
+    const calls = stubCrossPluginRpc({
+      "simple-notes:listNotes": (input: unknown) => {
+        const { vaultId } = input as { vaultId?: string };
+        if (vaultId === undefined) {
+          // The enumerating call: every vault, plus the default vault's notes.
+          return {
+            vaults: [
+              makeVault({ id: "personal", name: "Personal" }),
+              makeVault({ id: "mtc", name: "mtc" }),
+              makeVault({ id: "broken", name: "Broken" }),
+              makeVault({ id: "remote", name: "Remote", hostId: "host_1" }),
+            ],
+            vault: makeVault({ id: "personal", name: "Personal" }),
+            notes: [makeDocNote({ path: "personal.md", modifiedAtMs: 5 })],
+            hosts: [],
+            entries: [],
+            entryOrder: [],
+            truncated: false,
+            error: null,
+          };
+        }
+        if (vaultId === "mtc") {
+          return {
+            vaults: [],
+            vault: makeVault({ id: "mtc", name: "mtc" }),
+            notes: [makeDocNote({ path: "mtc.md", modifiedAtMs: 50 })],
+            hosts: [],
+            entries: [],
+            entryOrder: [],
+            truncated: false,
+            error: null,
+          };
+        }
+        // The scan of "broken" failed; the Docs plugin reports it inline.
+        return {
+          vaults: [],
+          vault: makeVault({ id: "broken", name: "Broken" }),
+          notes: [],
+          hosts: [],
+          entries: [],
+          entryOrder: [],
+          truncated: false,
+          error: "vault root missing",
+        };
+      },
+    });
+
+    const { docs } = (await host.harness.behavior.callRpc(
+      "listDocs",
+      null,
+    )) as {
+      docs: {
+        vaultId: string;
+        vaultName: string;
+        path: string;
+        title: string;
+        preview: string;
+        modifiedAtMs: number;
+      }[];
+    };
+
+    // Only the global vaults were scanned: the default vault rode along with
+    // the enumerating call, one more call read "mtc", "broken" reported its
+    // own scan failure, and the host vault was never asked for anything.
+    const askedVaultIds = calls
+      .map((call) => (call.input as { vaultId?: string }).vaultId)
+      .filter((vaultId) => vaultId !== undefined);
+    expect(askedVaultIds).toEqual(["mtc", "broken"]);
+    expect(docs).toEqual([
+      {
+        vaultId: "mtc",
+        vaultName: "mtc",
+        path: "mtc.md",
+        title: "Release plan",
+        preview: "Ship the pool sources",
+        modifiedAtMs: 50,
+      },
+      {
+        vaultId: "personal",
+        vaultName: "Personal",
+        path: "personal.md",
+        title: "Release plan",
+        preview: "Ship the pool sources",
+        modifiedAtMs: 5,
+      },
+    ]);
+  });
+
+  it("refuses to list docs when the Docs plugin isn't available", async () => {
+    stubCrossPluginRpc({});
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({ plugins: [] })) as never,
+    );
+
+    await expect(host.harness.behavior.callRpc("listDocs", null)).rejects.toThrow(
+      "Docs is not installed and enabled",
+    );
+    expect(
+      host.harness.inspection.sdk.callsTo("plugins.callRpc"),
+    ).toHaveLength(0);
+  });
+
+  it("reads a doc's content as utf8 text", async () => {
+    const calls = stubCrossPluginRpc({
+      "simple-notes:readNote": () => ({
+        path: "plans/release.md",
+        content: "# Release plan",
+        contentEncoding: "utf8",
+        sizeBytes: 14,
+        sha256: "abc",
+      }),
+    });
+
+    const { content } = (await host.harness.behavior.callRpc("readDoc", {
+      vaultId: "personal",
+      path: "plans/release.md",
+    })) as { content: string };
+
+    expect(calls[0]).toMatchObject({
+      pluginId: "simple-notes",
+      method: "readNote",
+      input: { vaultId: "personal", path: "plans/release.md" },
+    });
+    expect(content).toBe("# Release plan");
+  });
+
+  it("decodes a doc that arrives base64-encoded", async () => {
+    stubCrossPluginRpc({
+      "simple-notes:readNote": () => ({
+        path: "plans/release.md",
+        content: Buffer.from("# Release plan", "utf8").toString("base64"),
+        contentEncoding: "base64",
+        sizeBytes: 14,
+        sha256: "abc",
+      }),
+    });
+
+    const { content } = (await host.harness.behavior.callRpc("readDoc", {
+      vaultId: "personal",
+      path: "plans/release.md",
+    })) as { content: string };
+    expect(content).toBe("# Release plan");
+  });
+
+  it("refuses to read a doc when the Docs plugin isn't available", async () => {
+    stubCrossPluginRpc({});
+    host.harness.inspection.sdk.stub(
+      "plugins.list",
+      (async () => ({ plugins: [] })) as never,
+    );
+
+    await expect(
+      host.harness.behavior.callRpc("readDoc", {
+        vaultId: "personal",
+        path: "plans/release.md",
+      }),
+    ).rejects.toThrow("Docs is not installed and enabled");
+    expect(
+      host.harness.inspection.sdk.callsTo("plugins.callRpc"),
+    ).toHaveLength(0);
   });
 });
 
@@ -495,6 +937,61 @@ describe("persistence", () => {
 
     const provide = host.harness.registrations.instructionProvider!;
     expect(provide({ threadId, projectId: "proj_personal" })).toContain("Pirate");
+  });
+
+  it("saves a chosen color, keeps it across a reload, and Auto returns it to null", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
+      null,
+    )) as { personaId: string };
+
+    // Fresh personas start auto (null): the stable id-hash tint.
+    const { persona: before } = (await host.harness.behavior.callRpc(
+      "getPersona",
+      { personaId },
+    )) as { persona: { color: string | null } | null };
+    expect(before?.color).toBeNull();
+
+    const readColor = async () => {
+      const { persona } = (await host.harness.behavior.callRpc("getPersona", {
+        personaId,
+      })) as { persona: { color: string | null } | null };
+      return persona === null ? "missing" : persona.color;
+    };
+
+    await host.harness.behavior.callRpc("savePersona", {
+      personaId,
+      patch: { color: "rose" },
+    });
+    expect(await readColor()).toBe("rose");
+
+    // Auto is a real state, not an absence: null clears the choice.
+    await host.harness.behavior.callRpc("savePersona", {
+      personaId,
+      patch: { color: null },
+    });
+    expect(await readColor()).toBeNull();
+
+    // The chosen color is durable storage, not session state.
+    await host.harness.behavior.callRpc("savePersona", {
+      personaId,
+      patch: { color: "rose" },
+    });
+    await host.harness.lifecycle.reload(plugin);
+    expect(await readColor()).toBe("rose");
+  });
+
+  it("rejects an out-of-palette color patch at the schema", async () => {
+    const { personaId } = (await host.harness.behavior.callRpc(
+      "createPersona",
+      null,
+    )) as { personaId: string };
+    await expect(
+      host.harness.behavior.callRpc("savePersona", {
+        personaId,
+        patch: { color: "scarlet" },
+      }),
+    ).rejects.toThrow();
   });
 
   it("carries a pre-pool instructions column into exactly one text prompt, and only once", async () => {

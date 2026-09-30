@@ -8,6 +8,7 @@ const PERSONA_WITH_CHATS = {
   id: "persona_1",
   name: "Pirate",
   emoji: "🏴‍☠️",
+  color: null,
   prompts: [
     {
       id: "prompt_1",
@@ -32,6 +33,7 @@ const PERSONA_NO_CHATS = {
   id: "persona_2",
   name: "Builder",
   emoji: "🤖",
+  color: "rose",
   prompts: [
     {
       id: "prompt_2",
@@ -56,6 +58,7 @@ const PERSONA_DRAFT = {
   id: "persona_3",
   name: "",
   emoji: "🧪",
+  color: null,
   prompts: [],
   providerId: "",
   model: "",
@@ -70,6 +73,7 @@ const PERSONA_NAMED_DRAFT = {
   id: "persona_4",
   name: "Switcher",
   emoji: "🧪",
+  color: null,
   prompts: [],
   providerId: "codex",
   model: "gpt-5.5",
@@ -78,6 +82,34 @@ const PERSONA_NAMED_DRAFT = {
   status: "draft" as const,
   createdAt: 0,
   updatedAt: 10,
+};
+
+// One published persona whose pool holds a live note prompt: the wire text is
+// the note's resolved body (the server resolves it), and noteId is the link.
+const PERSONA_WITH_NOTE = {
+  id: "persona_5",
+  name: "Zookeeper",
+  emoji: "🐙",
+  color: "violet",
+  prompts: [
+    {
+      id: "prompt_note",
+      personaId: "persona_5",
+      type: "note" as const,
+      text: "Feed crackers twice a day.",
+      noteId: "note_2",
+      position: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ],
+  providerId: "codex",
+  model: "gpt-5.5",
+  reasoningLevel: "medium" as const,
+  projectId: null,
+  status: "published" as const,
+  createdAt: 0,
+  updatedAt: 5,
 };
 
 const RAIL_PERSONAS = [
@@ -94,11 +126,15 @@ const RAIL_PERSONAS = [
 
 const PERSONAS_BY_ID: Record<
   string,
-  typeof PERSONA_WITH_CHATS | typeof PERSONA_NO_CHATS | typeof PERSONA_DRAFT
+  | typeof PERSONA_WITH_CHATS
+  | typeof PERSONA_NO_CHATS
+  | typeof PERSONA_DRAFT
+  | typeof PERSONA_WITH_NOTE
 > = {
   persona_1: PERSONA_WITH_CHATS,
   persona_2: PERSONA_NO_CHATS,
   persona_3: PERSONA_DRAFT,
+  persona_5: PERSONA_WITH_NOTE,
 };
 
 const HEALTH_AVAILABLE = {
@@ -209,6 +245,65 @@ const HEALTH_DISABLED = {
   ],
 };
 
+// Neither cooperating plugin available, so the + Add dropdown has nothing to
+// offer and the button stays a plain one.
+const HEALTH_NONE = {
+  floatingNotesAvailable: false,
+  tools: [
+    {
+      id: "floating-notes",
+      label: "Floating Notes",
+      installed: false,
+      enabled: false,
+      status: null,
+      version: null,
+      installUrl: "https://github.com/vburojevic/bb-plugin-floating-notes",
+      available: false,
+    },
+    {
+      id: "simple-notes",
+      label: "Docs",
+      installed: false,
+      enabled: false,
+      status: null,
+      version: null,
+      installUrl: "https://github.com/get-bb/bb/tree/main/plugins/docs",
+      available: false,
+    },
+  ],
+};
+
+const FLOATING_NOTES = {
+  notes: [
+    {
+      // persona_1's existing prompt, verbatim: built to collide on attach.
+      id: "note_1",
+      title: "Pirate sayings",
+      body: "Always answer in pirate speak.",
+      updatedAt: 20,
+    },
+    {
+      id: "note_2",
+      title: "Parrot care",
+      body: "Feed crackers twice a day.",
+      updatedAt: 10,
+    },
+  ],
+};
+
+const DOCS = {
+  docs: [
+    {
+      vaultId: "personal",
+      vaultName: "Personal",
+      path: "plans/release.md",
+      title: "Release plan",
+      preview: "Ship the pool sources",
+      modifiedAtMs: 30,
+    },
+  ],
+};
+
 const RPC = {
   listRail: () => ({ personas: RAIL_PERSONAS }),
   getPersona: (input: unknown) => {
@@ -271,6 +366,11 @@ const RPC = {
   publishPersona: () => ({ ok: true }),
   deletePersona: () => ({ ok: true }),
   getPluginHealth: () => HEALTH_AVAILABLE,
+  listFloatingNotes: () => FLOATING_NOTES,
+  listDocs: () => DOCS,
+  readDoc: () => ({
+    content: "# Release plan\n\n<b>Ship</b> the pool sources.",
+  }),
 };
 
 async function loadPanel() {
@@ -537,16 +637,16 @@ describe("personas nav panel", () => {
 
   // -- Prompt pool editor ------------------------------------------------------
 
-  it("renders each pool entry as a 24-character preview with an overflow ellipsis", async () => {
+  it("renders each pool entry as a 50-character preview with an overflow ellipsis", async () => {
     const panel = await loadPanel();
-    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+    const slot = renderSlot(panel, { subPath: "persona_2/edit" }, { rpc: RPC });
 
-    // "Always answer in pirate speak." is 31 characters, so the entry shows
-    // exactly its first 24 ("Always answer in pirate ") plus an ellipsis.
+    // persona_2's prompt is 840 characters, so the entry shows exactly its
+    // first 50 plus an ellipsis — never the whole text.
     await slot.findByLabelText("Text prompt");
     expect(slot.queryByText("No prompts yet — add one below.")).toBeNull();
-    await slot.findByText("Always answer in pirate …");
-    expect(slot.queryByText("Always answer in pirate speak.")).toBeNull();
+    await slot.findByText(`${PERSONA_NO_CHATS.prompts[0]!.text.slice(0, 50)}…`);
+    expect(slot.queryByText(PERSONA_NO_CHATS.prompts[0]!.text)).toBeNull();
 
     slot.lifecycle.unmount();
   });
@@ -591,28 +691,34 @@ describe("personas nav panel", () => {
     slot.lifecycle.unmount();
   });
 
-  it("blocks a prompt whose first 24 characters match an existing entry, without an RPC", async () => {
+  it("allows a prompt whose first characters match an existing entry — the user curates the pool", async () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
-    // persona_1 already holds "Always answer in pirate speak."; the first 24
-    // characters of this draft are the same, so the client-side rule fires.
+    // persona_1 already holds "Always answer in pirate speak."; duplicates
+    // are the user's call now, so the add goes straight through.
     const textarea = await slot.findByLabelText("Text prompt");
     fireEvent.change(textarea, {
       target: { value: "Always answer in pirate XX" },
     });
     (await slot.findByRole("button", { name: "+ Add" })).click();
 
-    await slot.findByText(
-      "This pool already has a prompt with the same first 24 characters.",
+    await waitFor(() => {
+      const addCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "addPersonaPrompt",
+      );
+      expect(addCall?.input).toEqual({
+        personaId: "persona_1",
+        type: "text",
+        text: "Always answer in pirate XX",
+      });
+    });
+    // The form resets after a successful add.
+    await waitFor(() =>
+      expect(
+        (slot.getByLabelText("Text prompt") as HTMLTextAreaElement).value,
+      ).toBe(""),
     );
-    expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "addPersonaPrompt"),
-    ).toBe(false);
-    // The draft survives so the user can fix it.
-    expect(
-      (slot.getByLabelText("Text prompt") as HTMLTextAreaElement).value,
-    ).toBe("Always answer in pirate XX");
 
     slot.lifecycle.unmount();
   });
@@ -621,7 +727,7 @@ describe("personas nav panel", () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
-    (await slot.findByRole("button", { name: "Edit prompt: Always answer in pirate …" })).click();
+    (await slot.findByRole("button", { name: "Edit prompt: Always answer in pirate speak." })).click();
 
     // The textarea loads the prompt's full text for editing.
     const textarea = (await slot.findByLabelText(
@@ -649,7 +755,7 @@ describe("personas nav panel", () => {
     const panel = await loadPanel();
     const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
 
-    (await slot.findByRole("button", { name: "Remove prompt: Always answer in pirate …" })).click();
+    (await slot.findByRole("button", { name: "Remove prompt: Always answer in pirate speak." })).click();
 
     await waitFor(() => {
       const removeCall = slot.inspection.rpcCalls.find(
@@ -658,6 +764,177 @@ describe("personas nav panel", () => {
       expect(removeCall?.input).toEqual({
         personaId: "persona_1",
         promptId: "prompt_1",
+      });
+    });
+
+    slot.lifecycle.unmount();
+  });
+
+  it("offers the + Add dropdown's source pickers only when their plugins are available", async () => {
+    const panel = await loadPanel();
+
+    // Both plugins healthy: the dropdown offers both pickers.
+    const both = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+    fireEvent.click(
+      await both.findByRole("button", { name: "More add options" }),
+    );
+    await both.findByRole("menuitem", { name: "Add Floating Note" });
+    await both.findByRole("menuitem", { name: "Add Doc" });
+    both.lifecycle.unmount();
+
+    // Floating Notes missing: only the Doc picker is offered.
+    const notesMissing = renderSlot(
+      panel,
+      { subPath: "persona_3/edit" },
+      { rpc: { ...RPC, getPluginHealth: () => HEALTH_MISSING } },
+    );
+    fireEvent.click(
+      await notesMissing.findByRole("button", { name: "More add options" }),
+    );
+    await notesMissing.findByRole("menuitem", { name: "Add Doc" });
+    expect(
+      notesMissing.queryByRole("menuitem", { name: "Add Floating Note" }),
+    ).toBeNull();
+    notesMissing.lifecycle.unmount();
+
+    // Neither plugin available: no dropdown at all, just the plain + Add.
+    const none = renderSlot(
+      panel,
+      { subPath: "persona_3/edit" },
+      { rpc: { ...RPC, getPluginHealth: () => HEALTH_NONE } },
+    );
+    await none.findByText("No prompts yet — add one below.");
+    expect(none.queryByRole("button", { name: "More add options" })).toBeNull();
+    expect(none.queryByRole("button", { name: "+ Add" })).not.toBeNull();
+    none.lifecycle.unmount();
+  });
+
+  it("attaches a Floating Note from the picker as a live note reference, with inline search filtering", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+
+    fireEvent.click(
+      await slot.findByRole("button", { name: "More add options" }),
+    );
+    fireEvent.click(
+      await slot.findByRole("menuitem", { name: "Add Floating Note" }),
+    );
+
+    // The picker lists every note; typing filters the list inline.
+    await slot.findByText("Pirate sayings");
+    await slot.findByText("Parrot care");
+    fireEvent.change(slot.getByLabelText("Search notes"), {
+      target: { value: "parrot" },
+    });
+    expect(slot.queryByText("Pirate sayings")).toBeNull();
+    fireEvent.click(await slot.findByRole("button", { name: /Parrot care/ }));
+
+    // Selecting the note dismissed the modal and attached the note BY ID —
+    // a live reference, not a copy of the note's current text.
+    await waitFor(() => {
+      const addCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "addPersonaPrompt",
+      );
+      expect(addCall?.input).toEqual({
+        personaId: "persona_3",
+        type: "note",
+        noteId: "note_2",
+      });
+    });
+    expect(
+      slot.queryByText("Pick one note to add to this persona's prompt pool."),
+    ).toBeNull();
+
+    slot.lifecycle.unmount();
+  });
+
+  it("attaches a note whose body matches an existing prompt — duplicates are the user's call now", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    fireEvent.click(
+      await slot.findByRole("button", { name: "More add options" }),
+    );
+    fireEvent.click(
+      await slot.findByRole("menuitem", { name: "Add Floating Note" }),
+    );
+
+    // note_1's body is persona_1's existing prompt, verbatim — allowed.
+    fireEvent.click(await slot.findByRole("button", { name: /Pirate sayings/ }));
+
+    await waitFor(() => {
+      const addCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "addPersonaPrompt",
+      );
+      expect(addCall?.input).toEqual({
+        personaId: "persona_1",
+        type: "note",
+        noteId: "note_1",
+      });
+    });
+    expect(
+      slot.queryByText("Pick one note to add to this persona's prompt pool."),
+    ).toBeNull();
+
+    slot.lifecycle.unmount();
+  });
+
+  it("renders a note entry as a live Floating Note: badged, never editable, only removable", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_5/edit" }, { rpc: RPC });
+
+    // The wire already resolved the note's live body for the entry display.
+    await slot.findByText("Floating Note");
+    await slot.findByText("Feed crackers twice a day.");
+    // Not editable: no Edit affordance exists for the note entry.
+    expect(slot.queryByRole("button", { name: /^Edit/ })).toBeNull();
+
+    (await slot.findByRole("button", { name: "Remove prompt: Feed crackers twice a day." })).click();
+    await waitFor(() => {
+      const removeCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "removePersonaPrompt",
+      );
+      expect(removeCall?.input).toEqual({
+        personaId: "persona_5",
+        promptId: "prompt_note",
+      });
+    });
+
+    slot.lifecycle.unmount();
+  });
+
+  it("adds a Doc from the picker as HTML-escaped prompt text", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_3/edit" }, { rpc: RPC });
+
+    fireEvent.click(
+      await slot.findByRole("button", { name: "More add options" }),
+    );
+    fireEvent.click(await slot.findByRole("menuitem", { name: "Add Doc" }));
+
+    // The picker shows the doc's title and where it lives.
+    await slot.findByText("Release plan");
+    await slot.findByText("Personal · plans/release.md");
+    fireEvent.click(await slot.findByRole("button", { name: /Release plan/ }));
+
+    await waitFor(() => {
+      const readCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "readDoc",
+      );
+      expect(readCall?.input).toEqual({
+        vaultId: "personal",
+        path: "plans/release.md",
+      });
+    });
+    // The doc's markup never reaches the pool as raw HTML.
+    await waitFor(() => {
+      const addCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "addPersonaPrompt",
+      );
+      expect(addCall?.input).toEqual({
+        personaId: "persona_3",
+        type: "text",
+        text: "# Release plan\n\n&lt;b&gt;Ship&lt;/b&gt; the pool sources.",
       });
     });
 
@@ -852,6 +1129,98 @@ describe("personas nav panel", () => {
     const avatar = slot.getByLabelText("Change icon").querySelector("span[aria-hidden]");
     expect(avatar).not.toBeNull();
     expect(EMOJIS).toContain(avatar!.textContent);
+
+    slot.lifecycle.unmount();
+  });
+
+  it("picks a color from the chooser's palette: the avatar wears it, and it autosaves as a color patch", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_1/edit" }, { rpc: RPC });
+
+    // persona_1 has no chosen color, so its avatar wears the id-hash tint.
+    const trigger = await slot.findByLabelText("Change icon");
+    const avatarBefore = trigger.querySelector("span[aria-hidden]")!;
+    expect(avatarBefore.className).not.toContain("bg-rose-500/15");
+
+    fireEvent.click(trigger);
+    await slot.findByText("Choose an icon");
+
+    // The palette rides in the chooser: Auto plus the curated colors.
+    expect((slot.getByRole("button", { name: "Color: Auto" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true");
+
+    // Install fake timers before the state change that arms the debounce,
+    // the same seam the emoji autosave test uses.
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(slot.getByRole("button", { name: "Color: Rose" }));
+
+      // Picking a color keeps the chooser open; the avatar already wears it.
+      expect(slot.getByText("Choose an icon")).not.toBeNull();
+      expect(avatarBefore.className).toContain("bg-rose-500/15");
+
+      await vi.advanceTimersByTimeAsync(600);
+      const saveCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "savePersona",
+      );
+      expect(saveCall?.input).toMatchObject({
+        personaId: "persona_1",
+        patch: { color: "rose" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    slot.lifecycle.unmount();
+  });
+
+  it("Color: Auto returns the avatar to the hash tint and saves color null", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "persona_2/edit" }, { rpc: RPC });
+
+    // persona_2 ships with rose chosen.
+    const trigger = await slot.findByLabelText("Change icon");
+    const avatar = trigger.querySelector("span[aria-hidden]")!;
+    expect(avatar.className).toContain("bg-rose-500/15");
+
+    fireEvent.click(trigger);
+    await slot.findByText("Choose an icon");
+    expect(
+      (slot.getByRole("button", { name: "Color: Rose" }) as HTMLButtonElement).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(slot.getByRole("button", { name: "Color: Auto" }));
+      expect(avatar.className).not.toContain("bg-rose-500/15");
+
+      await vi.advanceTimersByTimeAsync(600);
+      const saveCall = slot.inspection.rpcCalls.find(
+        (call) => call.method === "savePersona",
+      );
+      expect(saveCall?.input).toMatchObject({
+        personaId: "persona_2",
+        patch: { color: null },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    slot.lifecycle.unmount();
+  });
+
+  it("the rail's avatars wear each persona's chosen color (and the hash tint when auto)", async () => {
+    const panel = await loadPanel();
+    const slot = renderSlot(panel, { subPath: "" }, { rpc: RPC });
+
+    await slot.findByText("Pirate");
+    await slot.findByText("Builder");
+
+    // Builder chose rose; Pirate is auto — no rose tint on Pirate's avatar.
+    const builderAvatar = slot.getByText("Builder").closest("li, div")!.querySelector("span[aria-hidden]");
+    expect(builderAvatar).not.toBeNull();
+    expect(builderAvatar!.className).toContain("bg-rose-500/15");
+    const pirateAvatar = slot.getByText("Pirate").closest("li, div")!.querySelector("span[aria-hidden]");
+    expect(pirateAvatar!.className).not.toContain("bg-rose-500/15");
 
     slot.lifecycle.unmount();
   });

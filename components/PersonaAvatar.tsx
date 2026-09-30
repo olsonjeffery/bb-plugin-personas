@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { tintFor } from "@/personas";
+import { avatarTint, type PersonaColor } from "@/personas";
 
 const SIZES = {
   sm: "size-8 text-base",
@@ -10,11 +10,14 @@ const SIZES = {
 export function PersonaAvatar({
   personaId,
   emoji,
+  color = null,
   size = "md",
   className,
 }: {
   personaId: string;
   emoji: string;
+  /** The persona's chosen color; null = the stable hash-derived tint. */
+  color?: PersonaColor | null;
   size?: keyof typeof SIZES;
   className?: string;
 }) {
@@ -24,7 +27,7 @@ export function PersonaAvatar({
       className={cn(
         "flex shrink-0 items-center justify-center rounded-lg",
         SIZES[size],
-        tintFor(personaId),
+        avatarTint(personaId, color),
         className,
       )}
     >
